@@ -1,0 +1,35 @@
+.shared-midi-status {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border: 1px solid rgba(118, 151, 174, .15);
+  border-radius: 10px;
+  background: linear-gradient(145deg, rgba(13, 23, 33, .82), rgba(7, 13, 20, .86));
+}
+.shared-midi-status__orb { width: 11px; height: 11px; border-radius: 50%; background: #657487; box-shadow: 0 0 0 5px rgba(101, 116, 135, .09); }
+.shared-midi-status__orb.ready { background: #54d7ad; box-shadow: 0 0 0 5px rgba(84, 215, 173, .1), 0 0 15px rgba(84, 215, 173, .32); }
+.shared-midi-status>div { display: grid; gap: 3px; }
+.shared-midi-status strong { color: #dce9f0; font-size: 13px; }
+.shared-midi-status small { color: #778b9c; font-size: 12px; }
+.shared-midi-grid { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr); gap: 9px; margin-top: 10px; }
+.shared-midi-actions { grid-column: 1 / -1; display: flex; align-items: center; flex-wrap: wrap; gap: 7px; }
+.shared-midi-capability { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 9px; margin-top: 10px; padding: 10px 11px; border: 1px solid rgba(231, 179, 77, .2); border-radius: 9px; background: rgba(174, 118, 31, .07); color: #d8aa55; }
+.shared-midi-capability>div { display: grid; gap: 3px; }
+.shared-midi-capability strong { color: #ddc18b; font-size: 12px; }
+.shared-midi-capability span { color: #927f61; font-size: 12px; line-height: 1.45; }
+
+.stagehand-midi-bridge--shared > div:nth-child(2) { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.stagehand-midi-bridge--shared > .ui-button { width: 100%; justify-content: center; }
+.stagehand-midi-bridge--shared .stagehand-midi-help { margin: 0; }
+.stage-widget__feedback-boundary { display: block; margin-top: 5px; color: #648092; font-size: 11px; font-weight: 750; letter-spacing: .07em; text-align: center; }
+
+.performance-tuner-row { margin-top: 13px; }
+.performance-tuner-row .device-tuner { width: 100%; }
+
+@media (max-width: 700px) {
+  .shared-midi-status { grid-template-columns: auto minmax(0, 1fr); }
+  .shared-midi-status>.badge { grid-column: 1 / -1; justify-self: start; }
+  .shared-midi-grid { grid-template-columns: 1fr; }
+}

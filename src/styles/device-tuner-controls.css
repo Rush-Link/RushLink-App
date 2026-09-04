@@ -1,0 +1,151 @@
+/* Device tuner control dock ------------------------------------------------
+   The pitch display remains the focal point while the less frequently used
+   controls form a balanced, centred rail beneath it. */
+body .device-tuner .tuner-controls {
+  grid-template-columns:
+    minmax(190px, 1.15fr)
+    minmax(190px, 1fr)
+    minmax(130px, 0.72fr)
+    minmax(150px, 0.82fr);
+  align-items: stretch;
+  justify-content: stretch;
+  gap: 10px;
+  width: 100%;
+  margin-inline: 0;
+  padding: 10px;
+  border: 1px solid rgba(114, 165, 184, 0.17);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(15, 27, 39, 0.82), rgba(5, 11, 18, 0.86));
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.025), 0 12px 30px rgba(0, 0, 0, 0.14);
+}
+
+body .device-tuner .tuner-controls > .tuner-control__power,
+body .device-tuner .tuner-controls > .tuner-control {
+  min-width: 0;
+  min-height: 62px;
+  border-radius: 10px;
+}
+
+body .device-tuner .tuner-controls > .tuner-control__power {
+  align-self: stretch;
+  justify-content: center;
+  height: auto;
+  padding-inline: 14px;
+  font-weight: 750;
+  border-color: rgba(91, 192, 207, 0.2);
+  background: linear-gradient(145deg, rgba(30, 49, 62, 0.66), rgba(14, 25, 35, 0.74));
+  color: #b8cbd5;
+  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+}
+
+body .device-tuner .tuner-controls > .tuner-control__power:hover:not(:disabled) {
+  border-color: rgba(98, 222, 234, 0.36);
+  color: #ddf5f7;
+  filter: none;
+}
+
+body .device-tuner .tuner-controls > .tuner-control__power.is-active {
+  border-color: rgba(237, 101, 121, 0.26);
+  background: linear-gradient(145deg, rgba(84, 34, 44, 0.34), rgba(23, 19, 27, 0.72));
+  color: #e9a5ae;
+}
+
+body .device-tuner .tuner-control {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid rgba(126, 158, 181, 0.13);
+  background: rgba(4, 10, 17, 0.54);
+}
+
+body .device-tuner .tuner-control > span {
+  color: #7890a3;
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+body .device-tuner .tuner-control--mode .mode-buttons {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 100%;
+  gap: 4px;
+  padding: 3px;
+}
+
+body .device-tuner .tuner-control--mode .mode-buttons button {
+  min-width: 0;
+  min-height: 31px;
+  padding: 5px 9px;
+  transition: background 140ms ease, color 140ms ease, box-shadow 140ms ease;
+}
+
+body .device-tuner .tuner-control--mode .mode-buttons button.active {
+  background: linear-gradient(145deg, rgba(55, 204, 218, 0.22), rgba(36, 139, 153, 0.13));
+  color: #a3f2f7;
+  box-shadow: inset 0 0 0 1px rgba(94, 222, 233, 0.13);
+}
+
+body .device-tuner .tuner-control--reference .ui-select {
+  width: 100%;
+  min-height: 34px;
+  border-color: rgba(126, 158, 181, 0.16);
+  background-color: rgba(8, 16, 24, 0.9);
+}
+
+body .device-tuner .tuner-control--mute {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: auto;
+}
+
+body .device-tuner .tuner-control--mute > span {
+  max-width: 78px;
+  line-height: 1.25;
+}
+
+body .device-tuner .tuner-load-note {
+  justify-content: center;
+  text-align: center;
+}
+
+@media (max-width: 1040px) {
+  body .device-tuner .tuner-controls {
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    width: 100%;
+    gap: 10px;
+  }
+
+  body .device-tuner .tuner-controls > .tuner-control__power,
+  body .device-tuner .tuner-controls > .tuner-control {
+    width: 100%;
+  }
+
+  body .device-tuner .tuner-control--mode .mode-buttons button {
+    min-height: 36px;
+  }
+}
+
+@media (max-width: 620px) {
+  body .device-tuner .tuner-controls {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  body .device-tuner .tuner-controls > .tuner-control__power,
+  body .device-tuner .tuner-controls > .tuner-control {
+    min-height: 54px;
+  }
+
+  body .device-tuner .tuner-control--mode .mode-buttons button {
+    min-height: 40px;
+  }
+}

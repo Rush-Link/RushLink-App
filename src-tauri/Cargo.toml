@@ -1,0 +1,26 @@
+[package]
+name = "rushlink"
+version = "0.1.0"
+description = "Unofficial HeadRush desktop companion"
+authors = ["RushLink"]
+edition = "2021"
+license-file = "../LICENSE"
+
+[lib]
+name = "rushlink_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tokio = { version = "1", features = ["sync", "time"] }
+tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+url = "2"

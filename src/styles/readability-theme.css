@@ -1,0 +1,156 @@
+/* Final, app-wide readability layer. Keep this import last so feature styles
+   can stay expressive while sharing one accessible visual hierarchy. */
+:root {
+  color-scheme: dark;
+  --canvas: #070b11;
+  --panel: #101720;
+  --panel-2: #16202b;
+  --elevated: #1b2734;
+  --sunken: #080d14;
+  --line: #344357;
+  --line-soft: #253244;
+  --text: #f3f7fc;
+  --text-2: #c8d3df;
+  --muted: #96a6b9;
+  --cyan: #5ee7f0;
+  --cyan-rgb: 94, 231, 240;
+  --violet: #ae8cff;
+  --violet-rgb: 174, 140, 255;
+  --green: #59e6a6;
+  --green-rgb: 89, 230, 166;
+  --amber: #ffc45f;
+  --amber-rgb: 255, 196, 95;
+  --red: #ff7188;
+  --red-rgb: 255, 113, 136;
+  --blue: #67b8ff;
+  --rose: #ff7abd;
+  --mint: #67e3c5;
+}
+
+body {
+  background:
+    radial-gradient(circle at 72% -12%, rgba(var(--violet-rgb), .12), transparent 31%),
+    radial-gradient(circle at 8% 105%, rgba(var(--cyan-rgb), .055), transparent 29%),
+    var(--canvas);
+  color: var(--text);
+}
+
+.main { grid-template-rows: 69px minmax(0, 1fr) 32px; }
+.sidebar { border-color: #293649; background: linear-gradient(180deg, #0d131c, #080d13 100%); }
+.nav-section { min-height: 27px; height: auto; color: #91a0b4; line-height: 1.25; }
+.sidebar__nav button { color: #a1afc1; }
+.sidebar__nav button:hover { background: #172231; color: #f2f7fc; }
+.sidebar__nav button.active {
+  background: linear-gradient(90deg, rgba(var(--cyan-rgb), .17), rgba(var(--cyan-rgb), .035));
+  color: #f4fdff;
+}
+.collapse-button, .topbar__status, .statusbar { color: #96a6b9; }
+.command-trigger { border-color: #34465b; background: #0e1620; color: #a9b7c8; }
+.command-trigger:hover { border-color: #52667e; color: #e3ebf3; }
+.statusbar { min-height: 32px; height: auto; background: #090e15; }
+
+.card {
+  border-color: #2d3b4d;
+  background: linear-gradient(145deg, rgba(20, 29, 40, .99), rgba(11, 17, 25, .99));
+  box-shadow: 0 10px 34px rgba(0, 0, 0, .18), inset 0 1px rgba(255, 255, 255, .018);
+}
+.card--interactive:hover { border-color: #53677f; }
+.page-title p, .card p { color: #a1afc0; }
+.eyebrow { color: #93a5b9; }
+.card-heading, .panel-title { color: #a8b7c8; }
+
+.ui-button {
+  min-height: 35px;
+  height: auto;
+  padding-block: 7px;
+  font-size: 13px;
+}
+.ui-button--sm { min-height: 31px; height: auto; padding-block: 5px; }
+.ui-button--lg { min-height: 42px; height: auto; }
+.ui-button--secondary { border-color: #405168; background: #1a2532; color: #e2e9f1; }
+.ui-button--secondary:hover { border-color: #60748c; background: #233243; }
+.ui-button--ghost { color: #bdc9d7; }
+.ui-button--outline { border-color: #53667c; color: #e2eaf3; }
+.ui-button--danger { border-color: rgba(var(--red-rgb), .48); background: rgba(var(--red-rgb), .12); color: #ff9aaa; }
+.icon-button { color: #a9b7c8; }
+.icon-button:hover { border-color: #506278; background: #1b2734; color: #fff; }
+.ui-button:disabled, .icon-button:disabled { opacity: .55; }
+
+.ui-input, .ui-select, .search-input {
+  border-color: #394a60;
+  background: #090f17;
+  color: #edf3f9;
+}
+.ui-input:hover, .ui-select:hover, .search-input:hover { border-color: #50657e; }
+.ui-input:focus, .ui-select:focus, .search-input:focus-within { border-color: var(--cyan); }
+.ui-input::placeholder { color: #7e8fa5; }
+.ui-label { color: #c0cbd8; }
+.ui-label small { color: #91a2b6; }
+
+.tabs { border-color: #334257; background: #090f16; }
+.tabs button { min-height: 30px; height: auto; color: #9cacbf; }
+.tabs button:hover { color: #e0e8f1; }
+.tabs button.active {
+  background: linear-gradient(145deg, #263447, #1a2634);
+  color: #f6fbff;
+  box-shadow: inset 0 -2px var(--cyan), 0 2px 8px rgba(0, 0, 0, .28);
+}
+
+.badge { min-height: 22px; height: auto; padding-block: 3px; border-color: #44546a; color: #b8c4d2; }
+.badge--cyan { border-color: rgba(var(--cyan-rgb), .48); background: rgba(var(--cyan-rgb), .13); color: #9ff7fc; }
+.badge--violet { border-color: rgba(var(--violet-rgb), .46); background: rgba(var(--violet-rgb), .14); color: #cbb9ff; }
+.badge--green { border-color: rgba(var(--green-rgb), .43); background: rgba(var(--green-rgb), .12); color: #8cf0c1; }
+.badge--amber { border-color: rgba(var(--amber-rgb), .44); background: rgba(var(--amber-rgb), .12); color: #ffd890; }
+.badge--red { border-color: rgba(var(--red-rgb), .45); background: rgba(var(--red-rgb), .12); color: #ff9eb0; }
+.badge--blue { border-color: rgba(103, 184, 255, .45); background: rgba(103, 184, 255, .12); color: #9bd1ff; }
+
+/* The drum transport is a useful contrast reference for the rest of the app:
+   identity is cyan, phrase position is blue, performance actions are distinct. */
+.drummer-brand small, .drummer-current small, .drummer-play small,
+.drummer-actions small, .drummer-device-note { color: #91a5b7; }
+.drummer-current span { color: #a5b6c5; }
+.drum-position strong { font-size: 12px; }
+.drummer-timeline { border-color: #3b4b5f; background: #080f17; }
+.drummer-timeline__head > span { color: var(--cyan); text-shadow: 0 0 12px rgba(var(--cyan-rgb), .18); }
+.drummer-timeline__head small { color: #a3b2c1; }
+.drummer-actions button:nth-child(1) .drummer-action-icon { color: var(--violet); background: rgba(var(--violet-rgb), .12); }
+.drummer-actions button:nth-child(2) .drummer-action-icon { color: var(--amber); background: rgba(var(--amber-rgb), .11); }
+.drummer-actions button:nth-child(3) .drummer-action-icon { color: var(--blue); background: rgba(103, 184, 255, .11); }
+.drummer-actions button:nth-child(4) .drummer-action-icon { color: var(--red); background: rgba(var(--red-rgb), .11); }
+
+/* Drummer is designed for stage-distance scanning: supporting text never drops
+   below the app's readable 12px floor. */
+.drum-studio-head .drummer-brand small,
+.drum-session-summary small,
+.drum-session-summary strong span,
+.drum-surface-label > span,
+.drum-surface-label > small,
+.drum-main-play small,
+.drum-device-connection,
+.drum-workbench-head > div > small,
+.drum-workspace-tabs small,
+.drum-workspace-content .fill-pool button small,
+.drum-preset-library > label > span,
+.drum-preset-rename label > span,
+.drum-preset-list small,
+.drum-preset-library__hint,
+.drum-preset-selected small,
+.drum-preset-selected p,
+.drum-preset-create small,
+.drum-preset-empty p,
+.drum-control-group > header small,
+.drum-control-group .parameter-row div > span,
+.drum-console .parameter-choice__heading span,
+.drum-console .parameter-choice__tiles button,
+.drum-console .parameter-choice__stepper output small,
+.drum-console .drummer-phrase__head small,
+.drum-console .drummer-phrase__sync,
+.drum-console .drummer-phrase__lane > span,
+.drum-console .drummer-phrase__foot,
+.drum-console .drummer-phrase__foot > b { font-size: 12px; }
+
+@media (max-width: 700px) {
+  .page { padding-inline: 16px; }
+  .page-title { align-items: flex-start; gap: 12px; }
+  .page-title__actions { flex-wrap: wrap; }
+}

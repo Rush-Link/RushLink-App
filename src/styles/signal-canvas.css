@@ -1,0 +1,351 @@
+/* Signal canvas geometry is intentionally isolated here. Every connector shares
+   the same port coordinate, so resizing a block cannot detach the signal line. */
+.signal-path-card--aligned {
+  --signal-node-width: clamp(88px, 6.4vw, 100px);
+  --signal-node-height: 92px;
+  --signal-column-gap: 9px;
+  --signal-row-padding: 17px;
+  --signal-label-height: 11px;
+  --signal-label-gap: 4px;
+  --signal-port-y: 78px;
+  --signal-row-height: 124px;
+  --signal-turn-height: 18px;
+  --signal-line: #58d5df;
+  --signal-line-secondary: #8373d8;
+}
+
+.signal-path-card--aligned .signal-path-scroll {
+  margin: 8px -3px 6px;
+  padding: 4px 3px 9px;
+  scrollbar-gutter: stable;
+}
+
+.interactive-signal-path--aligned {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  padding: 2px 0;
+}
+
+.interactive-signal-path--aligned .path-block-row {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--signal-node-width);
+  align-items: start;
+  gap: var(--signal-column-gap);
+  height: var(--signal-row-height);
+  padding: var(--signal-row-padding) 0 0;
+}
+
+.interactive-signal-path--aligned .path-block-row::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: var(--signal-port-y);
+  right: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3c6670, var(--signal-line) 45%, var(--signal-line-secondary));
+  opacity: .82;
+  box-shadow: 0 0 8px rgba(var(--cyan-rgb), .16);
+}
+
+.interactive-signal-path--aligned .path-lane-label {
+  position: absolute;
+  top: 0;
+  left: 1px;
+  height: 10px;
+  color: #8795a8;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 10px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.interactive-signal-path--aligned .chain-item {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: var(--signal-label-height) var(--signal-node-height);
+  row-gap: var(--signal-label-gap);
+  width: 100%;
+  height: calc(var(--signal-label-height) + var(--signal-label-gap) + var(--signal-node-height));
+  min-width: 0;
+}
+
+.interactive-signal-path--aligned .slot-index {
+  display: block;
+  height: var(--signal-label-height);
+  margin: 0 0 0 2px;
+  color: #8795a8;
+  font-size: 11px;
+  line-height: var(--signal-label-height);
+  letter-spacing: .8px;
+}
+
+.interactive-signal-path--aligned .block-node,
+.interactive-signal-path--aligned .block-node--empty {
+  box-sizing: border-box;
+  width: 100%;
+  height: var(--signal-node-height);
+  min-width: 0;
+  padding: 8px 7px 7px;
+}
+
+.interactive-signal-path--aligned .block-node:not(.block-node--empty) {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.interactive-signal-path--aligned .chain-item.drag-source .block-node {
+  cursor: grabbing;
+  opacity: .55;
+  transform: translateY(-3px) scale(.97);
+}
+
+.interactive-signal-path--aligned .chain-item.drop-ready {
+  outline-color: transparent;
+}
+
+.interactive-signal-path--aligned .chain-item.drop-target {
+  border-radius: 10px;
+  outline: 2px solid var(--cyan);
+  outline-offset: 4px;
+}
+
+.interactive-signal-path--aligned .chain-item.drop-target .block-node {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(var(--cyan-rgb), .12), 0 0 24px rgba(var(--cyan-rgb), .18);
+}
+
+.interactive-signal-path--aligned .block-grip {
+  color: #9aabba;
+  filter: drop-shadow(0 0 4px rgba(var(--cyan-rgb), .24));
+}
+
+.interactive-signal-path--aligned .block-node__icon {
+  display: grid;
+  visibility: visible;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin: 0 auto 6px;
+  color: var(--block-color);
+  opacity: 1;
+}
+
+.interactive-signal-path--aligned .block-node__icon svg {
+  display: block;
+  width: 17px;
+  height: 17px;
+  stroke: currentColor;
+  opacity: 1;
+}
+
+.interactive-signal-path--aligned .block-node strong {
+  font-size: 12px;
+}
+
+.interactive-signal-path--aligned .signal-port {
+  position: absolute;
+  z-index: 3;
+  top: 58px;
+  display: block;
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  border: 1px solid #b8f8fc;
+  border-radius: 50%;
+  background: #0a1118;
+  box-shadow: 0 0 0 2px rgba(83, 212, 222, .14), 0 0 7px rgba(var(--cyan-rgb), .45);
+  pointer-events: none;
+}
+
+.interactive-signal-path--aligned .signal-port--input { left: -3px; }
+.interactive-signal-path--aligned .signal-port--output { right: -3px; }
+
+.interactive-signal-path--aligned .block-node--empty + .signal-port,
+.interactive-signal-path--aligned .block-node.bypassed ~ .signal-port {
+  opacity: .65;
+}
+
+.interactive-signal-path--aligned .path-arrow,
+.interactive-signal-path--aligned .path-arrow-spacer {
+  position: relative;
+  display: block;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 16px;
+}
+
+.interactive-signal-path--aligned .path-arrow::before {
+  content: "";
+  position: absolute;
+  top: 7px;
+  right: 5px;
+  left: 0;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3c6670, var(--signal-line));
+  box-shadow: 0 0 7px rgba(var(--cyan-rgb), .18);
+}
+
+.interactive-signal-path--aligned .path-arrow i {
+  position: absolute;
+  top: 4px;
+  right: 1px;
+  width: 7px;
+  height: 7px;
+  border-top: 2px solid var(--signal-line);
+  border-right: 2px solid var(--signal-line);
+  transform: rotate(45deg);
+}
+
+.interactive-signal-path--aligned .path-arrow--reverse::before {
+  background: linear-gradient(90deg, var(--signal-line-secondary), var(--signal-line));
+}
+
+.interactive-signal-path--aligned .path-arrow--reverse i {
+  right: auto;
+  left: 1px;
+  transform: rotate(-135deg);
+}
+
+.interactive-signal-path--aligned .straight-path-layout {
+  position: relative;
+  width: max-content;
+  min-width: 0;
+  margin-inline: auto;
+}
+
+.interactive-signal-path--aligned .straight-path-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.interactive-signal-path--aligned .straight-path-line > .path-arrow,
+.interactive-signal-path--aligned .straight-path-line > .path-arrow-spacer {
+  margin-top: calc(var(--signal-port-y) - 7px);
+}
+
+.interactive-signal-path--aligned .straight-path-turn {
+  position: relative;
+  width: auto;
+  height: var(--signal-turn-height);
+  margin: 0 24px;
+  border: 0;
+  border-radius: 0;
+  opacity: 1;
+}
+
+.interactive-signal-path--aligned .straight-path-turn::before,
+.interactive-signal-path--aligned .straight-path-turn::after {
+  content: none;
+}
+
+.interactive-signal-path--aligned .straight-path-turn span {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  bottom: auto;
+  left: auto;
+  z-index: 2;
+  padding: 1px 6px;
+  border: 1px solid rgba(108, 116, 200, .28);
+  border-radius: 4px;
+  background: #0a1018;
+  color: #9ca8ba;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 11px;
+  letter-spacing: .9px;
+  transform: none;
+}
+
+.interactive-signal-path--aligned .straight-path-layout::after {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: var(--signal-port-y);
+  right: 23px;
+  width: 2px;
+  height: calc(var(--signal-row-height) + var(--signal-turn-height));
+  border-radius: 999px;
+  background: linear-gradient(var(--signal-line-secondary), var(--signal-line));
+  box-shadow: 0 0 8px rgba(128, 111, 219, .25);
+}
+
+.interactive-signal-path--aligned .path-block-row--reverse::before {
+  background: linear-gradient(90deg, var(--signal-line-secondary), var(--signal-line) 55%, #3c6670);
+}
+
+.interactive-signal-path--aligned .split-path-layout {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: max-content;
+  min-width: 0;
+  height: 258px;
+  margin-inline: auto;
+}
+
+.interactive-signal-path--aligned .split-branch-stack {
+  display: grid;
+  align-self: stretch;
+  gap: 10px;
+}
+
+.interactive-signal-path--aligned .path-junction {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 258px;
+  overflow: visible;
+}
+
+.interactive-signal-path--aligned .path-junction path {
+  fill: none;
+  stroke: var(--signal-line);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 4px rgba(var(--cyan-rgb), .28));
+}
+
+.interactive-signal-path--aligned .path-junction circle {
+  fill: var(--signal-line);
+  stroke: #b9fbff;
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+}
+
+.interactive-signal-path--aligned .path-junction--merge path {
+  stroke: var(--signal-line-secondary);
+}
+
+.interactive-signal-path--aligned .path-junction--merge circle {
+  fill: var(--signal-line-secondary);
+  stroke: #d7d1ff;
+}
+
+.interactive-signal-path--aligned .split-path-layout > .path-arrow {
+  flex-basis: 28px;
+  width: 28px;
+  margin: 0 4px;
+  transform: translateY(17px);
+}
+
+.interactive-signal-path--aligned .split-path-layout > .path-block-row {
+  align-self: center;
+}
+
+@media (max-width: 800px) {
+  .signal-path-card--aligned {
+    --signal-node-width: 88px;
+  }
+}

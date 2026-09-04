@@ -1,0 +1,48 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.log
+*.tsbuildinfo
+coverage/
+coverage-all/
+playwright-report/
+test-results/
+.idea/
+.vscode/
+
+# Credentials and signing material
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.cer
+*.crt
+*.jks
+*.keystore
+
+# Local databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+
+# Private device captures
+reference/headrush/raw/
+reference/headrush/live/
+reference/headrush/*discovery*.json
+reference/headrush/*sweep*.json
+reference/headrush/route-discovery.json
+reference/headrush/web-file-crawl.json
+
+# Copied/generated material
+HeadRush Flex Prime - User Guide - v5.1.0.pdf
+rushlink-brand-pack.zip
+src-tauri/gen/schemas/
+release-artifacts/
+*.tmp
+*.bak

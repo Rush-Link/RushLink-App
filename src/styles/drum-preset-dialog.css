@@ -1,0 +1,76 @@
+/* Clear, responsive creation flow inside the device drummer preset browser. */
+body .drum-preset-create {
+  display: flex;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+  padding: 14px;
+  border-color: rgba(var(--violet-rgb), .3);
+  background: linear-gradient(145deg, rgba(var(--violet-rgb), .09), rgba(8, 14, 22, .82));
+}
+
+body .drum-preset-create > header {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+body .drum-preset-create > header > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid rgba(var(--violet-rgb), .3);
+  border-radius: 9px;
+  background: rgba(var(--violet-rgb), .13);
+  color: #b69cff;
+}
+
+body .drum-preset-create > header > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+body .drum-preset-create > header p {
+  margin: 3px 0 0;
+  color: #8196a6;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+body .drum-preset-create__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+body .drum-preset-create__form > label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+body .drum-preset-create__form > label > span {
+  color: #8198aa;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .1em;
+}
+
+body .drum-preset-create__form .ui-button {
+  min-width: 132px;
+}
+
+@media (max-width: 700px) {
+  body .drum-preset-create__form {
+    grid-template-columns: 1fr;
+  }
+
+  body .drum-preset-create__form .ui-button {
+    width: 100%;
+  }
+}

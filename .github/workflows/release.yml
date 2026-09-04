@@ -1,0 +1,68 @@
+name: Build RushLink desktop release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "rushlink-v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            target: x86_64-pc-windows-msvc
+            args: ""
+          - platform: macos-latest
+            target: aarch64-apple-darwin
+            args: "--target aarch64-apple-darwin"
+          - platform: macos-latest
+            target: x86_64-apple-darwin
+            args: "--target x86_64-apple-darwin"
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Verify clean release payload
+        run: npm run release:check
+      - name: Build installers and create draft alpha release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tagName: rushlink-v__VERSION__
+          releaseName: RushLink v__VERSION__ early alpha
+          releaseBody: |
+            Early alpha desktop build. Back up important rigs before use.
+
+            Windows: x64 installer. macOS: choose Apple Silicon or Intel.
+          releaseDraft: true
+          prerelease: true
+          generateReleaseNotes: true
+          uploadUpdaterJson: false
+          retryAttempts: 1
+          args: ${{ matrix.args }}
+          releaseAssetNamePattern: "RushLink_[version]_[platform]_[arch][_setup].[ext]"
