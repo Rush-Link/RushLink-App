@@ -84,6 +84,6 @@ npm run build:desktop
 
 Windows installers are written below `src-tauri/target/release/bundle/`. macOS `.dmg` bundles must be built on macOS; the release workflow builds separate Apple Silicon and Intel artifacts and can sign and notarize them when the Apple secrets described in [docs/RELEASE.md](docs/RELEASE.md) are configured.
 
-Only publish the generated installer artifacts. Do not upload `reference/`, `coverage/`, `playwright-report/`, `dist/`, or the Rust `target/` tree. The captured device research in `reference/` is development input and is never included in the application bundle. For the closed-source public release, the website points to the separate public `matcygal/RushLink-Releases` repository rather than exposing this source repository.
+Only publish the generated installer artifacts. Do not upload `reference/`, `coverage/`, `playwright-report/`, `dist/`, or the Rust `target/` tree. The captured device research in `reference/` is development input and is never included in the application bundle. For the closed-source public release, the website and installer downloads are hosted in the separate public `rush-link/rush-link.github.io` repository rather than exposing this private source repository.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the complete signing, verification, website, and publishing checklist. RushLink's data handling is documented in [PRIVACY.md](PRIVACY.md).

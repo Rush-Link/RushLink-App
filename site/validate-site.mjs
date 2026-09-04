@@ -55,7 +55,7 @@ async function validateViewport(name, viewport) {
   assert.equal(await releaseLinks.count(), 5);
   assert.deepEqual(
     await releaseLinks.evaluateAll((links) => links.map((link) => link.getAttribute("href"))),
-    Array(5).fill("https://github.com/matcygal/RushLink-Releases/releases"),
+    Array(5).fill("https://github.com/rush-link/rush-link.github.io/releases"),
   );
   assert.equal(await page.locator('a[href="privacy.html"]').getAttribute("href"), "privacy.html");
   const hireLinks = page.locator('a[href="about.html"]');
@@ -167,7 +167,7 @@ await validateAboutViewport("about tablet", { width: 820, height: 1080 });
 await validateAboutViewport("about phone", { width: 390, height: 844 });
 
 const statsPage = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-await statsPage.route("https://api.github.com/repos/matcygal/RushLink-Releases/releases?per_page=100", async (route) => {
+await statsPage.route("https://api.github.com/repos/rush-link/rush-link.github.io/releases?per_page=100", async (route) => {
   await route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -188,7 +188,7 @@ await statsPage.route("https://api.github.com/repos/matcygal/RushLink-Releases/r
 await statsPage.goto(`${siteUrl}?stats=1`, { waitUntil: "load" });
 assert.ok(await statsPage.locator("[data-release-stats]").isVisible());
 await statsPage.waitForFunction(() => document.querySelector("[data-stat-downloads]")?.textContent === "17");
-assert.equal(await statsPage.locator("[data-stat-repository]").innerText(), "matcygal/RushLink-Releases");
+assert.equal(await statsPage.locator("[data-stat-repository]").innerText(), "rush-link/rush-link.github.io");
 assert.equal(await statsPage.locator("[data-stat-downloads]").innerText(), "17");
 assert.equal(await statsPage.locator("[data-stat-releases]").innerText(), "1");
 assert.equal(await statsPage.locator("[data-stat-latest]").innerText(), "rushlink-v0.1.0");

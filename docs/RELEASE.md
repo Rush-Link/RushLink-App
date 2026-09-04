@@ -39,7 +39,7 @@ Without Apple signing and notarisation, macOS users will receive Gatekeeper warn
 1. Trigger the release workflow or push a tag such as `rushlink-v0.1.0`.
 2. Download and smoke-test all three draft artifacts: Windows x64, macOS Apple Silicon and macOS Intel.
 3. Edit the generated release notes, keep the early-alpha warning, then publish the draft.
-4. Verify the marketing site's `data-repository` remains `matcygal/RushLink-Releases`. Keep the proprietary source repository private.
+4. Verify the marketing site's `data-repository` remains `rush-link/rush-link.github.io`. Keep the proprietary `rush-link/RushLink-App` source repository private.
 5. Deploy GitHub Pages and verify the Downloads panel and release count against the published release.
 
 Do not upload `reference/`, `coverage*`, `test-results/`, `playwright-report/`, `dist/` or the complete `src-tauri/target/` directory. Upload only the installer assets produced below the platform bundle directories.
