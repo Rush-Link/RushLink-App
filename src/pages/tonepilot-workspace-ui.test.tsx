@@ -21,6 +21,7 @@ function resetTonePilot() {
     liveSnapshot: null, rigs: structuredClone(demoRigs), selectedRigId: demoRigs[0].id,
     setlists: structuredClone(demoSetlists), selectedSetlistId: demoSetlists[0].id,
     tones: [tone], selectedToneId: tone.id, toneModels: { [tone.id]: [model] }, selectedToneModelId: model.id,
+    captureOverride: "auto",
     toneLoading: false, toneModelLoading: false, toneError: null, toneModelError: null, auditionError: null,
     toneUpdatedAtBySource: { tone3000: Date.now(), headRushCloud: Date.now() },
     testRigs: structuredClone(testRigTemplates), selectedTestRigId: testRigTemplates[0].id,
@@ -170,8 +171,9 @@ describe("TonePilot audition workspace UI", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Save to Rigs" }));
 
     await waitFor(() => expect(save).toHaveBeenCalledOnce());
-    expect(screen.getByRole("status")).toHaveTextContent("Saved “QA Amp” to Rigs");
-    expect(screen.getByRole("status")).toHaveTextContent("Also added to Show");
+    const saveResult = screen.getByRole("button", { name: "Dismiss save result" }).closest('[role="status"]');
+    expect(saveResult).toHaveTextContent("Saved “QA Amp” to Rigs");
+    expect(saveResult).toHaveTextContent("Also added to Show");
     expect(screen.getByRole("button", { name: "Refresh rig" })).toBeInTheDocument();
   });
 
