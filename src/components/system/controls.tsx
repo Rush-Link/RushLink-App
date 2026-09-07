@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { Activity, ChevronLeft, ChevronRight, CloudOff, Radio, Wifi, WifiOff } from "lucide-react";
 import type { DeviceInfo, Parameter } from "../../domain/types";
 import { clamp, cn } from "../../lib/utils";
-import { Badge, Switch } from "../ui";
+import { Badge, Input, Select, Switch } from "../ui";
 import { DeviceFileControl } from "./device-file-control";
+import "../../styles/controls.css";
 
 export function ConnectionOrb({ status }: { status: DeviceInfo["status"] | "offline" }) {
   return <span className={cn("connection-orb", `connection-orb--${status}`)}><span /><i /></span>;
@@ -53,10 +54,10 @@ export function ValueKnob({ value, min = 0, max = 100, label, unit, onChange, si
 
 function AdaptiveChoice({ parameter, onChange }: { parameter: Parameter; onChange: (value: Parameter["value"]) => void }) {
   const choices = parameter.choices ?? [];
-  const selectedIndex = Math.max(0, choices.indexOf(String(parameter.value)));
+  const selectedIndex = choices.indexOf(String(parameter.value));
   const selectRelative = (offset: number) => {
     if (!choices.length) return;
-    onChange(choices[(selectedIndex + offset + choices.length) % choices.length]);
+    onChange(choices[selectedIndex < 0 ? (offset > 0 ? 0 : choices.length - 1) : (selectedIndex + offset + choices.length) % choices.length]);
   };
 
   if (choices.length <= 8) return <div className="parameter-choice parameter-choice--tiles">
@@ -77,15 +78,26 @@ function AdaptiveChoice({ parameter, onChange }: { parameter: Parameter; onChang
 export function ParameterControl({ parameter, onChange, onPreview, compact = false, choiceStyle = "select" }: { parameter: Parameter; onChange: (value: Parameter["value"]) => void; onPreview?: (value: Parameter["value"]) => Promise<void> | void; compact?: boolean; choiceStyle?: "select" | "adaptive" }) {
   if (parameter.deviceFile) return <DeviceFileControl parameter={parameter} compact={compact} onChange={onChange} onPreview={onPreview} />;
   if (parameter.choices && choiceStyle === "adaptive") return <AdaptiveChoice parameter={parameter} onChange={onChange}/>;
+  if (parameter.choices) {
+    const value = String(parameter.value);
+    const choices = [...new Set(parameter.choices)];
+    const missing = !choices.includes(value);
+    return <label className="parameter-selection">
+      <span className="parameter-selection__label">{parameter.label}</span>
+      <Select aria-label={parameter.label} value={value} title={value || "Choose an option"} disabled={!choices.length} onChange={(event) => onChange(event.target.value)}>
+        {missing && <option value={value} disabled>{value || (choices.length ? "Choose an option" : "No options available")}</option>}
+        {choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+      </Select>
+    </label>;
+  }
   if (compact && typeof parameter.value === "number") {
     const min = parameter.min ?? 0; const max = parameter.max ?? 100; const step = parameter.step ?? Math.max(Number.EPSILON, (max - min) / 200);
     const fill = max === min ? 0 : clamp((parameter.value - min) / (max - min) * 100, 0, 100);
     return <label className="parameter-compact" style={{ "--parameter-fill": `${fill}%` } as React.CSSProperties}><span><strong>{parameter.label}</strong><output>{Number.isInteger(parameter.value) ? parameter.value : parameter.value.toFixed(1)}<small>{parameter.unit}</small></output></span><input aria-label={parameter.label} type="range" min={min} max={max} step={step} value={parameter.value} onChange={(event) => onChange(Number(event.target.value))}/></label>;
   }
-  if (typeof parameter.value === "boolean") return <div className="parameter-row"><div><strong>{parameter.label}</strong><span>{parameter.value ? "Enabled" : "Bypassed"}</span></div><Switch checked={parameter.value} onCheckedChange={onChange} /></div>;
-  if (parameter.choices) return <div className="parameter-row"><div><strong>{parameter.label}</strong><span>Selection</span></div><select value={String(parameter.value)} onChange={(e) => onChange(e.target.value)}>{parameter.choices.map((choice) => <option key={choice}>{choice}</option>)}</select></div>;
+  if (typeof parameter.value === "boolean") return <div className="parameter-row"><div><strong>{parameter.label}</strong><span>{parameter.value ? "Enabled" : "Bypassed"}</span></div><Switch label={parameter.label} checked={parameter.value} onCheckedChange={onChange} /></div>;
   if (typeof parameter.value === "number") return <ValueKnob value={parameter.value} min={parameter.min} max={parameter.max} label={parameter.label} unit={parameter.unit} onChange={onChange} />;
-  return <label className="parameter-text"><span>{parameter.label}</span><input value={String(parameter.value)} onChange={(e) => onChange(e.target.value)} /></label>;
+  return <label className="parameter-text"><span>{parameter.label}</span><Input value={String(parameter.value)} onChange={(e) => onChange(e.target.value)} /></label>;
 }
 
 export function NetworkStatus({ online, label }: { online: boolean; label?: string }) {

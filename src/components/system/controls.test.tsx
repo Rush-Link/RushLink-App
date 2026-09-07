@@ -36,6 +36,53 @@ describe("adaptive reflected choices", () => {
 });
 
 describe("shared device controls", () => {
+  it("labels and styles selections, preserving an unknown current value until the user chooses", () => {
+    const change = vi.fn();
+    render(<ParameterControl compact parameter={choiceParameter(["Cab A", "Cab B"], "Cab from newer firmware")} onChange={change}/>);
+    const select = screen.getByRole("combobox", { name: "Performance mode" });
+    expect(select).toHaveClass("ui-select");
+    expect(select).toHaveValue("Cab from newer firmware");
+    expect(change).not.toHaveBeenCalled();
+    fireEvent.change(select, { target: { value: "Cab B" } });
+    expect(change).toHaveBeenCalledExactlyOnceWith("Cab B");
+  });
+
+  it("does not turn numeric enum values into continuous sliders in compact editors", () => {
+    const change = vi.fn();
+    render(<ParameterControl compact parameter={{ id: "Mode", label: "Mode", value: 2, choices: ["1", "2", "4"] }} onChange={change}/>);
+    expect(screen.queryByRole("slider")).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Mode" })).toHaveValue("2");
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "4" } });
+    expect(change).toHaveBeenCalledWith("4");
+  });
+
+  it("disables unavailable choices without substituting a selection", () => {
+    const change = vi.fn();
+    render(<ParameterControl parameter={choiceParameter([], "")} onChange={change}/>);
+    expect(screen.getByRole("combobox", { name: "Performance mode" })).toBeDisabled();
+    expect(screen.getByRole("option")).toHaveTextContent("No options available");
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("does not misrepresent an unknown adaptive selection as the first choice", () => {
+    const change = vi.fn();
+    render(<ParameterControl parameter={choiceParameter(["Single", "Double"], "External mode")} choiceStyle="adaptive" onChange={change}/>);
+    expect(screen.getByText("External mode")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { pressed: false })).toHaveLength(2);
+    expect(change).not.toHaveBeenCalled();
+  });
+
+  it("starts browsing an unknown long-list value at the appropriate end", () => {
+    const choices = Array.from({ length: 12 }, (_, index) => `Model ${index}`);
+    const change = vi.fn();
+    render(<ParameterControl parameter={choiceParameter(choices, "External model")} choiceStyle="adaptive" onChange={change}/>);
+    expect(screen.getByText("External model")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next Performance mode" }));
+    expect(change).toHaveBeenLastCalledWith("Model 0");
+    fireEvent.click(screen.getByRole("button", { name: "Previous Performance mode" }));
+    expect(change).toHaveBeenLastCalledWith("Model 11");
+  });
+
   it("supports precise range input, pointer movement and midpoint reset on a knob", () => {
     const onChange = vi.fn();
     render(<ValueKnob label="Gain" value={40} min={0} max={100} unit="%" onChange={onChange}/>);

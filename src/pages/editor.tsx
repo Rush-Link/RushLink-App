@@ -1,19 +1,28 @@
 import { Activity, ArrowRightFromLine, AudioLines, AudioWaveform, Box, Cable, Check, ChevronDown, CirclePower, Clock3, Copy, Filter, Flame, GitCompareArrows, GripVertical, History, Mic2, Music2, Orbit, Plus, Repeat2, RotateCcw, Route, Save, ScanLine, Search, Shrink, SlidersHorizontal, Speaker, Sparkles, Star, Trash2, Undo2, Waves, Zap, type LucideIcon } from "lucide-react";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../stores/app-store";
 import { Badge, Button, Card, Dialog, IconButton, Input, Select, Switch, Tabs } from "../components/ui";
 import { ParameterControl } from "../components/system/controls";
+import { EqGraph } from "../components/system/eq-graph";
 import { ReflectionEditor } from "../components/system/reflection-editor";
-import type { BlockCategory, HeadRushObject, Parameter, Rig, RigBlock, RigHistoryEntry } from "../domain/types";
+import type { BlockCategory, HeadRushObject, Rig, RigBlock, RigHistoryEntry } from "../domain/types";
 import { deviceApi } from "../services/device-api";
 import { deviceErrorMessage } from "../services/device-errors";
 import { cn } from "../lib/utils";
 import { ExpressionAssignmentsPanel, FootswitchAssignmentsPanel } from "./assignments";
-import { EQ_GRAPH_BOUNDS, equalizerBands, equalizerFrequencyForX, equalizerGainForY, equalizerXForFrequency, equalizerYForGain, slotEqualizerParameters, type EqualizerBand } from "../domain/equalizer";
+import { equalizerBands, slotEqualizerParameters } from "../domain/equalizer";
 import { parametersForObject } from "../domain/headrush-reflection";
 import { useSlotPointerDrag } from "../hooks/use-slot-pointer-drag";
 import { SlotDragPreview } from "../components/system/slot-drag-preview";
 import { BLOCK_CATEGORY_COLORS, BLOCK_CATEGORY_GROUPS, BLOCK_CATEGORY_LABELS, blockBelongsToCategoryGroup, categoryForBlockName, type BlockCategoryGroupId } from "../domain/block-categories";
+import "../styles/editor-upgrades.css";
+import "../styles/editor-workflows.css";
+import "../styles/signal-canvas.css";
+import "../styles/history-preview.css";
+import "../styles/routing-node-editor.css";
+import "../styles/block-catalogue-readable.css";
+
+export { EqGraph };
 
 const ROUTING_NAMES = ["Straight", "Middle Split 3-4-3", "Middle Split 5-3-3", "Middle Split 7-2-3", "Immediate Split"];
 const ROUTING_CONFIGS: Array<{ before: number; branch: number; after: number } | null> = [null, { before: 3, branch: 4, after: 3 }, { before: 5, branch: 3, after: 3 }, { before: 7, branch: 2, after: 3 }, { before: 0, branch: 7, after: 0 }];
@@ -24,132 +33,6 @@ type BlockBrowserCategory = "all" | "favorites" | BlockCategoryGroupId;
 const BLOCK_BROWSER_CATEGORIES: Array<{ id: BlockBrowserCategory; label: string; icon: LucideIcon; categories: readonly BlockCategory[] }> = [{ id: "all", label: "All effects", icon: Zap, categories: [] }, { id: "favorites", label: "Favorites", icon: Star, categories: [] }, ...BLOCK_CATEGORY_GROUPS.map((group) => ({ ...group, icon: GROUP_ICON[group.id] }))];
 const DEMO_BLOCK_TYPES = ["Empty Slot", "Amp", "ReValver Amp", "Cab", "IR", "Amp Clone", "Pedal Clone", "Neural Amp Modeler", "Gray Comp", "DynIII Comp", "Bass EQ", "Graphic EQ", "Ten Freq EQ", "Para EQ", "AIR Reverb", "Spring Reverb", "Flora Verb", "AIR Delay", "Tape Echo", "BBD Delay", "Reverse Delay", "Noise Filter", "Gate", "Stereo Doubler", "Green JRC-OD", "White Boost", "Tri Fuzz", "D1 Dist", "Acoust Sim", "AIR Filter", "Chorus", "Multi Chorus", "Flanger", "Vibe Phaser", "Vibrato", "Rotary", "Tremolo", "Shine Wah", "Black Wah", "Wham", "Smart Harm", "Octaves", "Drop Tune", "Shimmer", "Pitch Delay", "Sustain", "Hold", "Multi Delay", "Pressor", "G EQ", "FX-Loop"];
 
-type EqGraphUpdate = { parameter: Parameter & { value: number }; value: number };
-type EqDragState = { kind: "band" | "cutoff"; id: string; pointerId: number; offsetX: number; offsetY: number };
-
-export function EqGraph({ parameters, compact = false, onParameterChange }: { parameters: Parameter[]; compact?: boolean; onParameterChange?: (parameter: Parameter, value: number) => void }) {
-  const gradientId = `eq-fill-${useId().replace(/:/g, "")}`;
-  const [draft, setDraft] = useState<Record<string, number>>({});
-  const [activeControl, setActiveControl] = useState<string | null>(null);
-  const drag = useRef<EqDragState | null>(null);
-  const publishTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingUpdates = useRef<EqGraphUpdate[]>([]);
-  const lastDragUpdates = useRef<EqGraphUpdate[]>([]);
-  const effectiveParameters = useMemo(() => parameters.map((parameter) => typeof draft[parameter.id] === "number" ? { ...parameter, value: draft[parameter.id] } : parameter), [parameters, draft]);
-  const bands = equalizerBands(effectiveParameters);
-  const numericById = (id: string) => effectiveParameters.find((parameter): parameter is Parameter & { value: number } => parameter.id === id && typeof parameter.value === "number");
-  const highPassParameter = numericById("SltEQHP"); const lowPassParameter = numericById("SltEQLP");
-  const highPass = highPassParameter?.value ?? 20; const lowPass = lowPassParameter?.value ?? 20000;
-  const enabled = effectiveParameters.find((parameter) => parameter.id === "SltEQOn" || parameter.id === "On")?.value !== false;
-  const dbRange = Math.max(18, Math.min(30, ...bands.flatMap((band) => [Math.abs(band.gainParameter.min ?? 0), Math.abs(band.gainParameter.max ?? 0)])));
-  const snap = (value: number, parameter: Parameter & { value: number }) => {
-    const minimum = parameter.min ?? value; const maximum = parameter.max ?? value; const step = parameter.step ?? (parameter.unit === "Hz" ? 1 : .1);
-    return Math.max(minimum, Math.min(maximum, Math.round(value / step) * step));
-  };
-  const pointFor = (event: React.PointerEvent<SVGElement>) => {
-    const svg = event.currentTarget.ownerSVGElement; if (!svg) return null;
-    const bounds = svg.getBoundingClientRect(); if (!bounds.width || !bounds.height) return null;
-    return { x: (event.clientX - bounds.left) / bounds.width * 800, y: (event.clientY - bounds.top) / bounds.height * 220 };
-  };
-  const applyDraft = (updates: EqGraphUpdate[]) => setDraft((current) => Object.fromEntries([...Object.entries(current), ...updates.map(({ parameter, value }) => [parameter.id, value])]));
-  const publish = (updates: EqGraphUpdate[], final = false) => {
-    pendingUpdates.current = updates;
-    if (final) {
-      if (publishTimer.current) clearTimeout(publishTimer.current);
-      publishTimer.current = null; pendingUpdates.current = [];
-      updates.forEach(({ parameter, value }) => onParameterChange?.(parameter, value));
-      return;
-    }
-    if (publishTimer.current) return;
-    publishTimer.current = setTimeout(() => {
-      publishTimer.current = null; const queued = pendingUpdates.current; pendingUpdates.current = [];
-      queued.forEach(({ parameter, value }) => onParameterChange?.(parameter, value));
-    }, 120);
-  };
-  const beginBand = (event: React.PointerEvent<SVGCircleElement>, band: EqualizerBand) => {
-    if (!onParameterChange) return;
-    const point = pointFor(event); if (!point) return;
-    event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { kind: "band", id: band.id, pointerId: event.pointerId, offsetX: point.x - equalizerXForFrequency(band.frequency), offsetY: point.y - equalizerYForGain(band.gain, dbRange) };
-    setActiveControl(band.id);
-  };
-  const moveBand = (event: React.PointerEvent<SVGCircleElement>, band: EqualizerBand, final = false) => {
-    const state = drag.current; if (!state || state.kind !== "band" || state.id !== band.id || state.pointerId !== event.pointerId) return;
-    const point = pointFor(event); if (!point) return;
-    const updates: EqGraphUpdate[] = [];
-    if (band.frequencyParameter) updates.push({ parameter: band.frequencyParameter, value: snap(equalizerFrequencyForX(point.x - state.offsetX), band.frequencyParameter) });
-    updates.push({ parameter: band.gainParameter, value: snap(equalizerGainForY(point.y - state.offsetY, dbRange), band.gainParameter) });
-    lastDragUpdates.current = updates; applyDraft(updates); publish(updates, final);
-  };
-  const endBand = (event: React.PointerEvent<SVGCircleElement>, band: EqualizerBand) => {
-    moveBand(event, band, true);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    drag.current = null; lastDragUpdates.current = []; setActiveControl(null);
-  };
-  const beginCutoff = (event: React.PointerEvent<SVGRectElement>, parameter: Parameter & { value: number }) => {
-    if (!onParameterChange) return;
-    const point = pointFor(event); if (!point) return;
-    event.preventDefault(); event.currentTarget.setPointerCapture(event.pointerId);
-    drag.current = { kind: "cutoff", id: parameter.id, pointerId: event.pointerId, offsetX: point.x - equalizerXForFrequency(parameter.value), offsetY: 0 };
-    setActiveControl(parameter.id);
-  };
-  const moveCutoff = (event: React.PointerEvent<SVGRectElement>, parameter: Parameter & { value: number }, final = false) => {
-    const state = drag.current; if (!state || state.kind !== "cutoff" || state.id !== parameter.id || state.pointerId !== event.pointerId) return;
-    const point = pointFor(event); if (!point) return;
-    let frequency = snap(equalizerFrequencyForX(point.x - state.offsetX), parameter);
-    if (parameter.id === "SltEQHP") frequency = Math.min(frequency, lowPass);
-    if (parameter.id === "SltEQLP") frequency = Math.max(frequency, highPass);
-    const updates = [{ parameter, value: frequency }]; lastDragUpdates.current = updates; applyDraft(updates); publish(updates, final);
-  };
-  const endCutoff = (event: React.PointerEvent<SVGRectElement>, parameter: Parameter & { value: number }) => {
-    moveCutoff(event, parameter, true);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    drag.current = null; lastDragUpdates.current = []; setActiveControl(null);
-  };
-  const cancelDrag = (event: React.PointerEvent<SVGElement>) => {
-    if (lastDragUpdates.current.length) publish(lastDragUpdates.current, true);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    drag.current = null; lastDragUpdates.current = []; setActiveControl(null);
-  };
-  const nudgeBand = (event: React.KeyboardEvent<SVGGElement>, band: EqualizerBand) => {
-    const updates: EqGraphUpdate[] = [];
-    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && band.frequencyParameter) {
-      const factor = Math.pow(2, (event.key === "ArrowRight" ? 1 : -1) / 12);
-      updates.push({ parameter: band.frequencyParameter, value: snap(band.frequency * factor, band.frequencyParameter) });
-    }
-    if (event.key === "ArrowUp" || event.key === "ArrowDown") updates.push({ parameter: band.gainParameter, value: snap(band.gain + (event.key === "ArrowUp" ? 1 : -1) * (band.gainParameter.step ?? .1), band.gainParameter) });
-    if (!updates.length) return; event.preventDefault(); applyDraft(updates); publish(updates, true);
-  };
-  useEffect(() => { if (!drag.current) setDraft({}); }, [parameters]);
-  useEffect(() => () => { if (publishTimer.current) clearTimeout(publishTimer.current); }, []);
-
-  const points = Array.from({ length: 121 }, (_, index) => {
-    const hz = 20 * Math.pow(1000, index / 120);
-    const bandGain = bands.reduce((sum, band) => { const octaves = Math.log2(hz / band.frequency); return sum + band.gain * Math.exp(-.5 * Math.pow(octaves * band.q * 1.35, 2)); }, 0);
-    const filterGain = hz < highPass ? -12 * Math.log2(highPass / hz) : hz > lowPass ? -12 * Math.log2(hz / lowPass) : 0;
-    return `${EQ_GRAPH_BOUNDS.left + index * (EQ_GRAPH_BOUNDS.right - EQ_GRAPH_BOUNDS.left) / 120},${equalizerYForGain(bandGain + filterGain, dbRange)}`;
-  }).join(" ");
-  const activeBand = bands.find((band) => band.id === activeControl);
-  const activeCutoff = activeControl === highPassParameter?.id ? highPassParameter : activeControl === lowPassParameter?.id ? lowPassParameter : undefined;
-
-  return <div className={cn("graphic-eq", compact && "graphic-eq--compact", !enabled && "graphic-eq--disabled", onParameterChange && bands.length && "graphic-eq--editable", activeControl && "graphic-eq--dragging")}>
-    {!compact && <div className="eq-graph-status"><span><i /> DRAG A NODE</span><strong>{activeBand ? `${Math.round(activeBand.frequency)} Hz · ${activeBand.gain >= 0 ? "+" : ""}${activeBand.gain.toFixed(1)} dB · Q ${activeBand.q.toFixed(1)}` : activeCutoff ? `${activeCutoff.label} · ${Math.round(activeCutoff.value)} Hz` : `${bands.length} band${bands.length === 1 ? "" : "s"} · HP ${Math.round(highPass)} Hz · LP ${Math.round(lowPass)} Hz`}</strong></div>}
-    <svg viewBox="0 0 800 220" preserveAspectRatio="none" aria-label="Interactive block equalizer">
-      <defs><linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1"><stop stopColor="#55e3ec" stopOpacity=".28"/><stop offset=".55" stopColor="#6489ed" stopOpacity=".1"/><stop offset="1" stopColor="#9a6ff2" stopOpacity=".015"/></linearGradient><filter id={`${gradientId}-glow`}><feGaussianBlur stdDeviation="4" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
-      <rect className="eq-plot-bg" x={EQ_GRAPH_BOUNDS.left} y={EQ_GRAPH_BOUNDS.top} width={EQ_GRAPH_BOUNDS.right - EQ_GRAPH_BOUNDS.left} height={EQ_GRAPH_BOUNDS.bottom - EQ_GRAPH_BOUNDS.top}/>
-      {[50, 200, 500, 2000, 5000].map((hz) => <line className="eq-grid-minor" key={hz} x1={equalizerXForFrequency(hz)} x2={equalizerXForFrequency(hz)} y1={EQ_GRAPH_BOUNDS.top} y2={EQ_GRAPH_BOUNDS.bottom}/>)}
-      {[20, 100, 1000, 10000, 20000].map((hz) => <line className="eq-grid-major" key={hz} x1={equalizerXForFrequency(hz)} x2={equalizerXForFrequency(hz)} y1={EQ_GRAPH_BOUNDS.top} y2={EQ_GRAPH_BOUNDS.bottom}/>)}
-      {[-dbRange, -dbRange / 2, 0, dbRange / 2, dbRange].map((gain) => { const y = equalizerYForGain(gain, dbRange); return <g key={gain}><line className={gain === 0 ? "eq-zero-line" : "eq-grid-major"} x1={EQ_GRAPH_BOUNDS.left} x2={EQ_GRAPH_BOUNDS.right} y1={y} y2={y}/>{!compact && <text className="eq-db-label" x="39" y={y + 3} textAnchor="end">{gain > 0 ? "+" : ""}{gain}</text>}</g>; })}
-      <rect className="eq-filter-shade" x={EQ_GRAPH_BOUNDS.left} y={EQ_GRAPH_BOUNDS.top} width={Math.max(0, equalizerXForFrequency(highPass) - EQ_GRAPH_BOUNDS.left)} height={EQ_GRAPH_BOUNDS.bottom - EQ_GRAPH_BOUNDS.top}/>
-      <rect className="eq-filter-shade" x={equalizerXForFrequency(lowPass)} y={EQ_GRAPH_BOUNDS.top} width={Math.max(0, EQ_GRAPH_BOUNDS.right - equalizerXForFrequency(lowPass))} height={EQ_GRAPH_BOUNDS.bottom - EQ_GRAPH_BOUNDS.top}/>
-      <polygon className="eq-curve-fill" points={`${EQ_GRAPH_BOUNDS.left},${EQ_GRAPH_BOUNDS.bottom} ${points} ${EQ_GRAPH_BOUNDS.right},${EQ_GRAPH_BOUNDS.bottom}`} fill={`url(#${gradientId})`}/>
-      <polyline className="eq-curve-glow" points={points}/><polyline className="eq-curve" points={points}/>
-      {[highPassParameter, lowPassParameter].filter((parameter): parameter is Parameter & { value: number } => Boolean(parameter)).map((parameter) => { const x = equalizerXForFrequency(parameter.value); const label = parameter.id === "SltEQHP" ? "HP" : "LP"; return <g className={cn("eq-cutoff", activeControl === parameter.id && "active")} key={parameter.id}><line x1={x} x2={x} y1={EQ_GRAPH_BOUNDS.top} y2={EQ_GRAPH_BOUNDS.bottom}/><path d={`M${x - 7} ${EQ_GRAPH_BOUNDS.top + 2} H${x + 7} L${x} ${EQ_GRAPH_BOUNDS.top + 11} Z`}/><text x={x} y={EQ_GRAPH_BOUNDS.top + 24} textAnchor="middle">{label}</text>{onParameterChange && <rect className="eq-cutoff-hit" x={x - 13} y={EQ_GRAPH_BOUNDS.top} width="26" height={EQ_GRAPH_BOUNDS.bottom - EQ_GRAPH_BOUNDS.top} onPointerDown={(event) => beginCutoff(event, parameter)} onPointerMove={(event) => moveCutoff(event, parameter)} onPointerUp={(event) => endCutoff(event, parameter)} onPointerCancel={cancelDrag}/>}</g>; })}
-      {bands.map((band, index) => { const x = equalizerXForFrequency(band.frequency); const y = equalizerYForGain(band.gain, dbRange); return <g key={band.id} className={cn("eq-band-handle", !band.frequencyParameter && "eq-band-handle--fixed", activeControl === band.id && "active")} role="slider" tabIndex={onParameterChange ? 0 : -1} aria-label={`${band.label}, ${Math.round(band.frequency)} hertz, ${band.gain.toFixed(1)} decibels`} onKeyDown={(event) => nudgeBand(event, band)}><circle className="eq-band-halo" cx={x} cy={y} r={compact ? 10 : 14}/><circle className="eq-band-dot" cx={x} cy={y} r={compact ? 7 : 10}/><text className="eq-band-index" x={x} y={y + 3} textAnchor="middle">{index + 1}</text>{onParameterChange && <circle className="eq-band-hit" cx={x} cy={y} r="24" onPointerDown={(event) => beginBand(event, band)} onPointerMove={(event) => moveBand(event, band)} onPointerUp={(event) => endBand(event, band)} onPointerCancel={cancelDrag}/>}<title>{`${band.label}: ${Math.round(band.frequency)} Hz · ${band.gain.toFixed(1)} dB · Q ${band.q.toFixed(1)}`}</title></g>; })}
-    </svg>
-    <div className="eq-axis"><span>20 Hz</span><span>100</span><span>1k</span><span>10k</span><span>20 kHz</span></div>{!bands.length && <p>This block does not expose its slot EQ controls.</p>}
-  </div>;
-}
 
 function BlockCell({ block, index, selected, dragSlot, dropSlot, onSelect, onAdd, onToggle, onPointerDown, onKeyboardMove }: { block: RigBlock; index: number; selected: boolean; dragSlot: number | null; dropSlot: number | null; onSelect: () => void; onAdd: () => void; onToggle: () => void; onPointerDown: (event: React.PointerEvent<HTMLElement>) => void; onKeyboardMove: (direction: -1 | 1) => void }) {
   const CategoryIcon = CATEGORY_ICON[block.category] ?? Zap;
@@ -232,7 +115,13 @@ function RigHistoryPanel({ rig, history, selectedHistory, onSelectHistory }: { r
 }
 
 export function EditorPage() {
-  const store = useAppStore(); const rig = store.liveSnapshot?.rig ?? store.rigs.find((item) => item.id === store.selectedRigId) ?? store.rigs[0]; const selected = rig.blocks.find((block) => block.id === store.selectedBlockId) ?? null;
+  const rig = useAppStore((store) => store.liveSnapshot?.rig ?? store.rigs.find((item) => item.id === store.selectedRigId) ?? store.rigs[0]);
+  if (!rig) return <div className="editor-page editor-page--unavailable" aria-hidden="true"><Card className="editor-unavailable-card"><span className="skeleton editor-unavailable-card__title"/><span className="skeleton editor-unavailable-card__chain"/><span className="skeleton editor-unavailable-card__panel"/></Card></div>;
+  return <EditorWorkspace rig={rig}/>;
+}
+
+function EditorWorkspace({ rig }: { rig: Rig }) {
+  const store = useAppStore(); const selected = rig.blocks.find((block) => block.id === store.selectedBlockId) ?? null;
   const [targetSlot, setTargetSlot] = useState<number | null>(null); const [search, setSearch] = useState(""); const [blockCategory, setBlockCategory] = useState<BlockBrowserCategory>("all"); const [structureBusy, setStructureBusy] = useState(false); const [structureError, setStructureError] = useState<string | null>(null); const [rigMenu, setRigMenu] = useState(false); const [lowerTab, setLowerTab] = useState<"history" | "switches" | "expression">("history"); const [utilityNode, setUtilityNode] = useState<"input" | "mix" | "output" | null>(null); const [eqOpen, setEqOpen] = useState(false); const [parameterTab, setParameterTab] = useState<"model" | "advanced">("model");
   const [presets, setPresets] = useState<string[]>([]); const [presetBusy, setPresetBusy] = useState(false); const [compareA, setCompareA] = useState<Rig | null>(null); const [compareB, setCompareB] = useState<Rig | null>(null); const [compareActive, setCompareActive] = useState<"A" | "B" | null>(null); const [selectedHistory, setSelectedHistory] = useState<string | null>(null);
   const slots = Array.from({ length: 14 }, (_, index) => rig.blocks.find((block) => block.slot === index) ?? { id: `slot-${index + 1}`, name: "Empty Slot", model: "Available", category: "utility" as const, color: "#354150", enabled: false, empty: true, slot: index, parameters: [] });
@@ -258,7 +147,7 @@ export function EditorPage() {
     <div className="editor-workspace"><section className="chain-panel"><div className="chain-panel__header"><div><span className="eyebrow">CURRENT DEVICE RIG</span><h2>Signal path</h2></div><div className="chain-routing-picker"><label>ROUTING<Select value={routing} onChange={(event) => { const next = Number(event.target.value); if (!mixAvailableForRouting(next) && utilityNode === "mix") setUtilityNode(null); void store.updateRouting({ Routing: next }); }}>{ROUTING_NAMES.map((name, index) => <option value={index} key={name}>{name}</option>)}</Select></label><label className="routing-stereo-toggle"><span>Stereo</span><Switch checked={store.liveSnapshot?.routing.stereo ?? false} onCheckedChange={(next) => void store.updateRouting({ RigIsStereo: next })}/></label></div></div>
       <SignalPathCanvas routing={routing} slots={slots} selectedBlockId={store.selectedBlockId} utilityNode={utilityNode} stereo={store.liveSnapshot?.routing.stereo ?? false} tails={store.liveSnapshot?.routing.tails ?? false} onUtilityNode={(node) => setUtilityNode(utilityNode === node ? null : node)} onSelect={store.selectBlock} onAdd={setTargetSlot} onToggle={(blockId) => void store.toggleBlock(blockId)} onMove={(from, to) => void store.moveBlock(from, to)} onTails={(next) => void store.updateRouting({ Tails: next })}/>
       {utilityNode && <RoutingNodeEditor node={utilityNode} object={store.liveSubtree?.[`/Evil/Engine/Patch/${utilityNode[0].toUpperCase()}${utilityNode.slice(1)}`]} onClose={() => setUtilityNode(null)}/>}
-      {targetSlot !== null && <Card className="block-browser block-browser--catalogue"><div className="block-browser__top"><div><span className="eyebrow">FLEX PRIME EFFECTS · SLOT {targetSlot + 1}</span><h3>Choose a block</h3></div><div className="search-input"><Search size={15}/><Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search effects and models…"/></div><Button variant="ghost" onClick={() => setTargetSlot(null)}>Cancel</Button></div>{structureError && <p className="editor-inline-error">{structureError}</p>}<div className="block-catalogue"><nav className="block-category-nav" aria-label="Effect categories">{BLOCK_BROWSER_CATEGORIES.map((category) => { const count = category.id === "all" ? allBlockChoices.length : category.id === "favorites" ? allBlockChoices.filter((block) => store.favoriteBlockNames.includes(block.name)).length : allBlockChoices.filter((block) => blockBelongsToCategoryGroup(block.name, category.id as BlockCategoryGroupId)).length; const CategoryIcon = category.icon; const primaryCategory = category.categories[0]; const categoryColor = category.id === "favorites" ? "#f0bd5e" : category.id === "all" || !primaryCategory ? "#6ee7f2" : BLOCK_CATEGORY_COLORS[primaryCategory]; return <button key={category.id} className={blockCategory === category.id ? "active" : ""} onClick={() => setBlockCategory(category.id)} style={{ "--category-color": categoryColor } as React.CSSProperties}><CategoryIcon size={14}/><span>{category.label}</span><b>{count}</b></button>; })}</nav><section className="block-catalogue__results"><div className="block-results-heading"><span><strong>{BLOCK_BROWSER_CATEGORIES.find((category) => category.id === blockCategory)?.label}</strong><small>{blockChoices.length}{blockChoices.length === 160 ? "+" : ""} matching blocks</small></span><Badge tone="cyan">ADD TO SLOT {targetSlot + 1}</Badge></div><div className="block-browser__grid block-browser__grid--catalogue">{blockChoices.map((block) => { const CategoryIcon = CATEGORY_ICON[block.category]; const favorite = store.favoriteBlockNames.includes(block.name); return <div className={cn("block-choice-wrap", favorite && "favorite")} key={block.moduleTypeId} style={{ "--block-color": BLOCK_CATEGORY_COLORS[block.category] } as React.CSSProperties}><button className="block-choice-card" disabled={structureBusy} onClick={() => void addBlock(block)}><span className="block-choice-card__icon"><CategoryIcon size={17}/></span><span><small>{BLOCK_CATEGORY_LABELS[block.category]}</small><strong>{block.name}</strong></span><Plus size={16}/></button><button className="block-favorite" aria-label={`${favorite ? "Remove" : "Add"} ${block.name} ${favorite ? "from" : "to"} favorites`} title={favorite ? "Remove favorite" : "Add favorite"} onClick={() => store.toggleFavoriteBlock(block.name)}><Star size={13} fill={favorite ? "currentColor" : "none"}/></button></div>; })}</div>{!blockChoices.length && <div className="block-browser__empty">{blockCategory === "favorites" ? <Star size={20}/> : <Search size={20}/>}<strong>{blockCategory === "favorites" ? "No favorite effects yet" : "No matching effects"}</strong><span>{blockCategory === "favorites" ? "Use the star on any effect to keep it here." : "Try another category or a broader search."}</span></div>}</section></div></Card>}
+      {targetSlot !== null && <Card className="block-browser block-browser--catalogue"><div className="block-browser__top"><div><span className="eyebrow">FLEX PRIME EFFECTS · SLOT {targetSlot + 1}</span><h3>Choose a block</h3></div><div className="search-input"><Search size={15}/><Input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search effects and models…"/></div><Button variant="ghost" onClick={() => setTargetSlot(null)}>Cancel</Button></div>{structureError && <p className="editor-inline-error">{structureError}</p>}<div className="block-catalogue"><nav className="block-category-nav" aria-label="Effect categories">{BLOCK_BROWSER_CATEGORIES.map((category) => { const count = category.id === "all" ? allBlockChoices.length : category.id === "favorites" ? allBlockChoices.filter((block) => store.favoriteBlockNames.includes(block.name)).length : allBlockChoices.filter((block) => blockBelongsToCategoryGroup(block.name, category.id as BlockCategoryGroupId)).length; const CategoryIcon = category.icon; const primaryCategory = category.categories[0]; const categoryColor = category.id === "favorites" ? "#f0bd5e" : category.id === "all" || !primaryCategory ? "#6ee7f2" : BLOCK_CATEGORY_COLORS[primaryCategory]; return <button key={category.id} className={blockCategory === category.id ? "active" : ""} onClick={() => setBlockCategory(category.id)} style={{ "--category-color": categoryColor } as React.CSSProperties}><CategoryIcon size={14}/><span>{category.label}</span><b>{count}</b></button>; })}</nav><section className="block-catalogue__results"><div className="block-results-heading"><span><strong>{BLOCK_BROWSER_CATEGORIES.find((category) => category.id === blockCategory)?.label}</strong><small>{blockChoices.length}{blockChoices.length === 160 ? "+" : ""} matching blocks</small></span><Badge tone="cyan">ADD TO SLOT {targetSlot + 1}</Badge></div><div className="block-browser__grid block-browser__grid--catalogue">{blockChoices.map((block) => { const CategoryIcon = CATEGORY_ICON[block.category] ?? Zap; const favorite = store.favoriteBlockNames.includes(block.name); return <div className={cn("block-choice-wrap", favorite && "favorite")} key={block.moduleTypeId} style={{ "--block-color": BLOCK_CATEGORY_COLORS[block.category] } as React.CSSProperties}><button className="block-choice-card" disabled={structureBusy} onClick={() => void addBlock(block)}><span className="block-choice-card__icon"><CategoryIcon size={17}/></span><span><small>{BLOCK_CATEGORY_LABELS[block.category]}</small><strong>{block.name}</strong></span><Plus size={16}/></button><button className="block-favorite" aria-label={`${favorite ? "Remove" : "Add"} ${block.name} ${favorite ? "from" : "to"} favorites`} title={favorite ? "Remove favorite" : "Add favorite"} onClick={() => store.toggleFavoriteBlock(block.name)}><Star size={13} fill={favorite ? "currentColor" : "none"}/></button></div>; })}</div>{!blockChoices.length && <div className="block-browser__empty">{blockCategory === "favorites" ? <Star size={20}/> : <Search size={20}/>}<strong>{blockCategory === "favorites" ? "No favorite effects yet" : "No matching effects"}</strong><span>{blockCategory === "favorites" ? "Use the star on any effect to keep it here." : "Try another category or a broader search."}</span></div>}</section></div></Card>}
 
       <Card className="editor-lower"><Tabs className="editor-workspace-tabs" value={lowerTab} onValueChange={setLowerTab} items={[{ value: "history", label: "Change history", count: history.length + 1 }, { value: "switches", label: "Footswitches & scenes" }, { value: "expression", label: "Expression" }]}/>{lowerTab === "history" && <RigHistoryPanel rig={rig} history={history} selectedHistory={selectedHistory} onSelectHistory={setSelectedHistory}/>} {lowerTab === "switches" && <FootswitchAssignmentsPanel/>}{lowerTab === "expression" && <ExpressionAssignmentsPanel/>}</Card>
     </section>

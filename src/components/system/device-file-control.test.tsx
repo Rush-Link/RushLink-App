@@ -1,4 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Parameter } from "../../domain/types";
 import { deviceApi } from "../../services/device-api";
@@ -22,6 +24,15 @@ function mockCatalogue() {
 }
 
 describe("HeadRush device file control", () => {
+  it("owns the base stylesheet required by every lazy workspace", () => {
+    const componentSource = readFileSync(resolve(process.cwd(), "src/components/system/device-file-control.tsx"), "utf8");
+    const stylesheet = readFileSync(resolve(process.cwd(), "src/styles/device-file-picker.css"), "utf8");
+
+    expect(componentSource).toContain('import "../../styles/device-file-picker.css";');
+    expect(stylesheet).toContain(".device-file-control{");
+    expect(stylesheet).toContain(".device-asset-browser{");
+  });
+
   it("auditions a clicked file and restores the opening value when cancelled", async () => {
     mockCatalogue();
     const onPreview = vi.fn(async () => undefined);

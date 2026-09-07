@@ -8,6 +8,20 @@ const parameter = (id: string, label: string, value: number, min = 0, max = 10, 
 const percent = (id: string, label: string, value: number) => parameter(id, label, value, 0, 10, "%");
 const toggle = (id: string, label: string, value: boolean): Parameter => ({ id, sourceProperty: id, label, value, writable: true });
 const choice = (id: string, label: string, value: string, choices: string[], choiceValues: number[]): Parameter => ({ id, sourceProperty: id, label, value, choices, choiceValues, writable: true });
+const normalizedParameter = (id: string, label: string, value: number, min: number, max: number, unit = "", normalizeAlgo = 0): Parameter => ({
+  id,
+  sourceProperty: id,
+  label,
+  value,
+  rawValue: normalizeAlgo === 0 ? (value - min) / (max - min) : undefined,
+  min,
+  max,
+  step: 0.1,
+  unit,
+  writable: true,
+  normalized: true,
+  normalizeAlgo,
+});
 const slotEqualizer = (): Parameter[] => [
   { id: "SltEQOn", label: "Block EQ", value: false, writable: true },
   parameter("SltEQF", "Frequency", 1000, 20, 20000, "Hz"),
@@ -18,6 +32,24 @@ const slotEqualizer = (): Parameter[] => [
   parameter("SltMix", "Mix", 100, 0, 100, "%"),
   { id: "SltPhase", label: "Phase", value: false, writable: true },
   { id: "SltPhaseR", label: "Right phase", value: false, writable: true },
+];
+
+/**
+ * Editable controls exposed by the Flex Prime Neural Amp Modeler host.
+ * LoadedClone is deliberately absent: TonePilot owns the temporary audition
+ * file while the user remains free to shape the host around it.
+ */
+export const testRigNamControls = (): Parameter[] => [
+  normalizedParameter("Input", "Input", 0, -20, 20, "dB"),
+  normalizedParameter("Output", "Output", 0, -40, 40, "dB"),
+  normalizedParameter("Threshold", "Gate threshold", -80, -100, 0, "dB"),
+  toggle("Gate", "Gate", true),
+  toggle("EQ", "Tone EQ", true),
+  normalizedParameter("Bass", "Bass", 5, 0, 10),
+  normalizedParameter("Middle", "Middle", 5, 0, 10),
+  normalizedParameter("Treble", "Treble", 5, 0, 10),
+  toggle("Normalize", "Normalize", true),
+  toggle("LightMode", "Lite Mode", false),
 ];
 
 const makeBlock = (id: string, name: string, model: string, category: RigBlock["category"], color: string, slot: number, enabled = true, controls?: Parameter[]): RigBlock => ({
@@ -193,7 +225,7 @@ const TEST_RIG_SOUNDS: Record<string, TestRigSound> = {
     amp: "67 Black Duo",
     ampControls: ampControls("67 Black Duo", [percent("GainA", "Volume", 3.8), percent("Bass", "Bass", 4.3), percent("Mid", "Middle", 5), percent("Treble", "Treble", 5.7), toggle("Bright", "Bright", true), toggle("Tremolo", "Vibrato", false)]),
     compressor: [percent("Sustain", "Sustain", 2.5), percent("Level", "Level", 5.2)],
-    ir: { file: "CT-Fend312EMFDS-4217B.wav", lowCut: 75, highCut: 8500 },
+    ir: { file: "CT-Fend312EMFDS-4217B.wav", lowCut: 65, highCut: 12000 },
     reverb: { model: "Spring Reverb", controls: springControls(3, 5.2, 1.5) },
   },
   overdrive: {
@@ -201,21 +233,21 @@ const TEST_RIG_SOUNDS: Record<string, TestRigSound> = {
     ampControls: ampControls("67 Black Duo", [percent("GainA", "Volume", 4.6), percent("Bass", "Bass", 4.2), percent("Mid", "Middle", 5.8), percent("Treble", "Treble", 5), toggle("Bright", "Bright", false), toggle("Tremolo", "Vibrato", false)]),
     compressor: [percent("Sustain", "Sustain", 1.6), percent("Level", "Level", 5.1)],
     drive: { model: "B2 Drive", category: "overdrive", controls: [percent("Gain", "Gain", 4), percent("Tone", "Tone", 5), percent("Level", "Level", 5.8)] },
-    ir: { file: "CT-Mgan112AlnG-42158.wav", lowCut: 80, highCut: 7500 },
+    ir: { file: "CT-Mgan112AlnG-42158.wav", lowCut: 65, highCut: 12000 },
     reverb: { model: "Spring Reverb", controls: springControls(2.6, 4.5, 1.3) },
   },
   distortion: {
     amp: "67 Plexiglas Vari",
     ampControls: ampControls("67 Plexiglas Vari", [percent("GainA", "High volume", 7.2), percent("GainB", "Normal volume", 2.2), percent("Bass", "Bass", 4), percent("Mid", "Middle", 6.8), percent("Treble", "Treble", 6), percent("Presence", "Presence", 5.5), percent("Master", "Master", 6)]),
     drive: { model: "White Boost", category: "overdrive", controls: [percent("Gain", "Gain", 1.2), percent("Treble", "Treble", 5.5), percent("Bass", "Bass", 4.8), percent("Volume", "Level", 7)] },
-    ir: { file: "CT-Brit412V30-160121.wav", lowCut: 80, highCut: 7200 },
+    ir: { file: "CT-Brit412V30-160121.wav", lowCut: 65, highCut: 12000 },
     reverb: { model: "Eleven Reverb", controls: elevenControls("Medium Plate", 2.4, 4.7, 12, 1) },
   },
   lead: {
     amp: "82 Lead 800 100W",
     ampControls: ampControls("82 Lead 800 100W", [percent("GainA", "Preamp", 6), percent("Master", "Master volume", 6), percent("Bass", "Bass", 4.3), percent("Mid", "Middle", 7), percent("Treble", "Treble", 5.6), percent("Presence", "Presence", 5)]),
     drive: { model: "S1 Drive", category: "overdrive", controls: [percent("Drive", "Drive", .8), percent("Tone", "Tone", 5), percent("Level", "Level", 7)] },
-    ir: { file: "CT-Brit412V30-160121.wav", lowCut: 85, highCut: 6800 },
+    ir: { file: "CT-Brit412V30-160121.wav", lowCut: 65, highCut: 12000 },
     delay: [toggle("Sync", "Sync", false), parameter("Delay", "Delay", 390, 1, 4000, "ms"), percent("Feedback", "Feedback", 2.8), parameter("Ratio", "Ratio", 0, -100, 100, "%"), percent("Width", "Width", 7), toggle("Stereo", "Stereo", true), parameter("EnvFbk", "Envelope feedback", 0, -100, 100, "%"), parameter("EnvMix", "Envelope mix", 15, -100, 100, "%"), parameter("EnvRate", "Envelope rate", .4, .01, 1, "s"), parameter("LoCut", "Low cut", 150, 20, 1000, "Hz"), parameter("HiCut", "High cut", 5000, 1000, 20000, "Hz"), percent("Mix", "Mix", 2), toggle("Tails", "Tails", true)],
     reverb: { model: "Eleven Reverb", controls: elevenControls("Rich Hall", 4, 4.4, 28, 1.3) },
   },
@@ -223,14 +255,14 @@ const TEST_RIG_SOUNDS: Record<string, TestRigSound> = {
     amp: "85 M-2 Lead",
     ampControls: ampControls("85 M-2 Lead", [percent("GainA", "Drive", 5.5), percent("Master", "Master volume", 5), percent("Bass", "Bass", 3.2), percent("Mid", "Middle", 4.8), percent("Treble", "Treble", 5.8), percent("Presence", "Presence", 5.2), toggle("Bright", "Bright", true)]),
     drive: { model: "Green JRC-OD", category: "overdrive", controls: [percent("Drive", "Drive", .2), percent("Tone", "Tone", 5.7), percent("Level", "Level", 8.5)] },
-    ir: { file: "CT-Bogie412V30-57421.wav", lowCut: 90, highCut: 6500 },
+    ir: { file: "CT-Bogie412V30-57421.wav", lowCut: 65, highCut: 12000 },
     eq: [parameter("Gain31", "30 Hz", -3, -12, 12, "dB"), parameter("Gain62", "60 Hz", -1.5, -12, 12, "dB"), parameter("Gain125", "125 Hz", .5, -12, 12, "dB"), parameter("Gain250", "250 Hz", 0, -12, 12, "dB"), parameter("Gain500", "500 Hz", -.8, -12, 12, "dB"), parameter("Gain1k", "1 kHz", -.5, -12, 12, "dB"), parameter("Gain2k", "2 kHz", .7, -12, 12, "dB"), parameter("Gain4k", "4 kHz", 1, -12, 12, "dB"), parameter("Gain8k", "8 kHz", -1.5, -12, 12, "dB"), parameter("Gain16k", "16 kHz", -4, -12, 12, "dB"), parameter("Gain", "Level", 0, -18, 6, "dB")],
   },
   metal: {
     amp: "99 PV51 II Lead",
     ampControls: ampControls("99 PV51 II Lead", [percent("GainA", "Pre gain", 5.8), percent("Master", "Post", 5), percent("Bass", "Low", 4.4), percent("Mid", "Middle", 4.2), percent("Treble", "High", 5.7), percent("Presence", "Presence", 5.2)]),
     drive: { model: "Green JRC-OD", category: "overdrive", controls: [percent("Drive", "Drive", .1), percent("Tone", "Tone", 6), percent("Level", "Level", 8.8)] },
-    ir: { file: "CT-Bogie412V30-57421.wav", lowCut: 85, highCut: 6200 },
+    ir: { file: "CT-Bogie412V30-57421.wav", lowCut: 65, highCut: 12000 },
   },
 };
 
@@ -240,7 +272,7 @@ const templateBlocks = (style: string): RigBlock[] => {
   if (sound.compressor) base.push(makeBlock(`${style}-compressor`, "Gray Comp", "Gray Comp", "compressor", BLOCK_CATEGORY_COLORS.compressor, 1, true, sound.compressor));
   if (sound.drive) base.push(makeBlock(`${style}-drive`, sound.drive.model, sound.drive.model, sound.drive.category, BLOCK_CATEGORY_COLORS[sound.drive.category], 3, true, sound.drive.controls));
   base.push(makeBlock(`${style}-amp`, sound.amp, "Amp", "amp", BLOCK_CATEGORY_COLORS.amp, style === "rhythm" ? 4 : 5, true, sound.ampControls));
-  base.push(makeBlock(`${style}-capture`, "Capture slot", "Neural Amp Modeler", "clone", BLOCK_CATEGORY_COLORS.clone, 6));
+  base.push(makeBlock(`${style}-capture`, "Capture slot", "Neural Amp Modeler", "clone", BLOCK_CATEGORY_COLORS.clone, 6, true, testRigNamControls()));
   base.push(makeBlock(`${style}-ir`, "IR Loader", "IR", "ir", BLOCK_CATEGORY_COLORS.ir, 7, true, irControls(sound.ir)));
   if (sound.delay) base.push(makeBlock(`${style}-delay`, "Dynamic Lead Delay", "Dyn Delay", "delay", BLOCK_CATEGORY_COLORS.delay, 8, true, sound.delay));
   if (sound.eq) base.push(makeBlock(`${style}-eq`, "Rhythm contour", "Ten Freq EQ", "eq", BLOCK_CATEGORY_COLORS.eq, 5, true, sound.eq));

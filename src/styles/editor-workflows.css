@@ -1,16 +1,12 @@
 /* Rig editor workflows and accessibility pass. */
-:root{
+.editor-page{
   --text-2:#bcc6d4;
   --muted:#8996a9;
   --line:#2a3546;
   --line-soft:#202938;
 }
 
-.sidebar__nav button{color:#a6b1c1;font-size:12px}
-.sidebar__nav button:hover{color:#eef6ff}
-.nav-section{color:#7e8999;font-size:13px}
-.collapse-button{min-height:34px;color:#a1adbe;font-size:12px}
-.eyebrow{color:#93a0b3;font-size:12px}
+.editor-page .eyebrow{color:#93a0b3;font-size:12px}
 .chain-panel__header h2{font-size:21px;letter-spacing:-.2px}
 .chain-panel__header p{margin-top:5px;color:var(--text-2);font-size:11px}
 .chain-level{color:#a9b5c5;font-size:13px}

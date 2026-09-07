@@ -149,7 +149,8 @@ describe("TonePilot audition lifecycle", () => {
     expect(useAppStore.getState().auditionError).not.toMatch(/load\s*\.$/i);
   });
 
-  it("reapplies an edited Test Rig to the active temporary chain without restarting the provider", async () => {
+  it("debounces and applies an edited NAM output to the active chain without restarting the provider", async () => {
+    vi.useFakeTimers();
     const moduleTypes = Array.from({ length: 60 }, () => "");
     Object.assign(moduleTypes, { 0: "Empty Slot", 2: "Amp", 9: "IR", 19: "Neural Amp Modeler", 21: "Gray Comp", 39: "Spring Reverb" });
     useAppStore.setState({
@@ -159,14 +160,14 @@ describe("TonePilot audition lifecycle", () => {
       liveSubtree: {
         "/Evil/API/Blocks": { value: { ModuleTypes: moduleTypes }, meta: { properties: {} } },
         "/Evil/Engine/Patch/Gray_Comp": { value: { On: true }, meta: { properties: { On: { type: "boolean" } } } },
-        "/Evil/Engine/Patch/Neural_Amp_Modeler": { value: { On: true }, meta: { properties: { On: { type: "boolean" } } } },
+        "/Evil/Engine/Patch/Neural_Amp_Modeler": { value: { On: true, Output: .5 }, meta: { properties: { On: { type: "boolean" }, Output: { type: "number", minimum: -40, maximum: 40, "x-options": { grid: .1 } } } } },
         "/Evil/Engine/Patch/IR": { value: { On: true, IR: "" }, meta: { properties: { On: { type: "boolean" }, IR: { type: "string", "x-options": { fileType: 2, startPath: "Impulse Responses" } } } } },
         "/Evil/Engine/Patch/Spring_Reverb": { value: { On: true }, meta: { properties: { On: { type: "boolean" } } } },
       },
     });
     const call = vi.spyOn(deviceApi, "callMethod").mockResolvedValue({ status: 200, body: {} });
     vi.spyOn(deviceApi, "properties").mockImplementation(async (path) => path === "/Evil/Engine/Patch/Neural_Amp_Modeler"
-      ? { On: true, LoadedClone: "Neural Amp Modeler/Tone 3000/A2 model.nam", FileMissing: "" }
+      ? { On: true, Output: .6, LoadedClone: "Neural Amp Modeler/Tone 3000/A2 model.nam", FileMissing: "" }
       : path === "/Evil/Engine/Patch/IR"
         ? { On: true, IR: "Impulse Responses/Choptones/CT-Fend312EMFDS-4217B.wav", FileMissing: "" }
       : path === "/Evil/Engine/Patch/Chain"
@@ -175,11 +176,15 @@ describe("TonePilot audition lifecycle", () => {
     const setProperties = vi.spyOn(deviceApi, "setProperties").mockResolvedValue({ status: 200, body: {} });
     vi.spyOn(useAppStore.getState(), "refreshPage").mockResolvedValue();
 
-    await useAppStore.getState().syncActiveTestRig();
+    const capture = useAppStore.getState().testRigs[0].blocks.find((block) => block.name === "Capture slot")!;
+    useAppStore.getState().updateTestRigParameter(capture.id, "Output", 8);
+    await vi.runAllTimersAsync();
 
     expect(call).not.toHaveBeenCalledWith("/Evil/API/Tone3000", "stopDemo", []);
     expect(call).not.toHaveBeenCalledWith("/Evil/API/Tone3000", "startDemo", expect.any(Array));
+    expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Neural_Amp_Modeler", expect.objectContaining({ Output: .6 }));
     expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Spring_Reverb", expect.objectContaining({ On: true }));
+    expect(useAppStore.getState().auditioningToneId).toBe(tone3000.id);
     expect(useAppStore.getState()).toMatchObject({ testRigSyncBusy: false, testRigSyncError: null, testRigSyncedAt: expect.any(Number) });
   });
 

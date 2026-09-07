@@ -185,6 +185,9 @@ export function testRigBlockProperties(block: RigBlock, object: HeadRushObject |
   const targetParameters = parametersForObject(object, reflectedProperties);
   const properties: Record<string, unknown> = { On: enabled };
   for (const source of block.parameters.filter((parameter) => parameter.writable !== false)) {
+    // The provider demo owns the temporary capture file. Test Rig Studio may
+    // shape a NAM host, but must never replace its LoadedClone selection.
+    if (block.name === CAPTURE_SLOT_NAME && (source.deviceFile || /^(?:LoadedClone|FileMissing)\d*$/i.test(source.sourceProperty || source.id))) continue;
     // Firmware can reflect multiple alternative selectors for one loader
     // (IR/IR2, IR/IR1024, LoadedClone/LoadedClone2). An empty alternative is
     // not an instruction to clear the file that is already selected in the

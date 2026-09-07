@@ -4,7 +4,8 @@ import { demoDevice, demoRigs } from "../data/demo-data";
 import type { Parameter, RigHistoryEntry } from "../domain/types";
 import { deviceApi } from "../services/device-api";
 import { useAppStore } from "../stores/app-store";
-import { EditorPage, EqGraph } from "./editor";
+import { EqGraph } from "../components/system/eq-graph";
+import { EditorPage } from "./editor";
 
 function editorRig() {
   const rig = structuredClone(demoRigs[0]);

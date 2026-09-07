@@ -7,6 +7,7 @@ import { deviceErrorDetail, deviceErrorMessage } from "../../services/device-err
 import { useAppStore } from "../../stores/app-store";
 import { Badge, Button, Card, Input, Switch } from "../ui";
 import { ReflectionEditor } from "./reflection-editor";
+import "../../styles/midi-out-editor.css";
 
 const MIDI_OUT_PATH = "/Evil/Engine/MIDIOutCtrl";
 const MIDI_MESSAGE_TYPES = ["None", "Program Change", "Control Change", "Note-On", "Note-Off"] as const;

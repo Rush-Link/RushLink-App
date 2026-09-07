@@ -173,7 +173,7 @@ function modulePath(name: string): string {
   return `/Evil/Engine/Patch/${name.replaceAll(" ", "_")}`;
 }
 
-const SLOT_EQ_PROPERTIES = ["SltEQOn", "SltEQF", "SltEQG", "SltEQQ", "SltEQHP", "SltEQLP", "SltMix", "SltPhase", "SltPhaseR"];
+export const SLOT_EQ_PROPERTIES = ["SltEQOn", "SltEQF", "SltEQG", "SltEQQ", "SltEQHP", "SltEQLP", "SltMix", "SltPhase", "SltPhaseR"];
 
 function buildBlocks(tree: HeadRushSubtree): RigBlock[] {
   const chain = valueOf(tree, "/Evil/Engine/Patch/Chain");

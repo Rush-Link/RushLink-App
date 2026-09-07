@@ -10,6 +10,8 @@ import type { Rig } from "../domain/types";
 import { cn } from "../lib/utils";
 import { useAppStore } from "../stores/app-store";
 import { PageTitle } from "../components/system/page-title";
+import "../styles/device-library.css";
+import "../styles/setlist-device-data.css";
 
 type RigView = "grid" | "list";
 type RigFilter = "all" | "favorites" | "loaded";

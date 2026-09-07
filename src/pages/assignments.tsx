@@ -29,6 +29,9 @@ import { deviceApi } from "../services/device-api";
 import { deviceErrorDetail } from "../services/device-errors";
 import { useAppStore } from "../stores/app-store";
 import { PageTitle } from "../components/system/page-title";
+import "../styles/assignments-upgrades.css";
+import "../styles/assignment-studio.css";
+import "../styles/expression-studio.css";
 
 const FOOTSWITCH = "/Evil/Engine/FootSwitch";
 const SCENE_LETTERS = "ABCDEF";

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { testRigTemplates } from "../data/demo-data";
 import type { RigBlock } from "../domain/types";
-import { migratePersistedTestRigIrFiles, useAppStore } from "./app-store";
+import { migratePersistedTestRigIrCuts, migratePersistedTestRigIrFiles, migratePersistedTestRigNamControls, useAppStore } from "./app-store";
 
 describe("TonePilot local test sets", () => {
   beforeEach(() => {
@@ -51,6 +51,42 @@ describe("TonePilot local test sets", () => {
       expect.objectContaining({ id: input.id }),
       expect.objectContaining({ id: output.id }),
     ]));
+  });
+
+  it("edits NAM host controls while keeping its structure and file selector protected", () => {
+    const rig = useAppStore.getState().testRigs[0];
+    const capture = rig.blocks.find((block) => block.name === "Capture slot")!;
+    const input = capture.parameters.find((parameter) => parameter.id === "Input")!;
+    capture.parameters.push({ id: "LoadedClone", sourceProperty: "LoadedClone", label: "NAM file", value: "Models/original.nam", writable: true, deviceFile: { fileType: 7, startPath: "Models" } });
+
+    useAppStore.getState().updateTestRigParameter(capture.id, input.id, 6.2);
+    useAppStore.getState().updateTestRigParameter(capture.id, "LoadedClone", "Models/replaced.nam");
+    expect(useAppStore.getState().testRigs[0].blocks.find((block) => block.id === capture.id)?.parameters.find((parameter) => parameter.id === "LoadedClone")?.value).toBe("Models/original.nam");
+    useAppStore.getState().updateTestRigBlock(capture.id, { name: "Replace me", model: "IR", category: "ir", enabled: false });
+
+    const updated = useAppStore.getState().testRigs[0].blocks.find((block) => block.id === capture.id)!;
+    expect(updated).toMatchObject({ name: "Capture slot", model: "Neural Amp Modeler", category: "clone", enabled: true, slot: 6 });
+    expect(updated.parameters.find((parameter) => parameter.id === "Input")?.value).toBe(6.2);
+    expect(updated.parameters.some((parameter) => parameter.id === "LoadedClone")).toBe(false);
+  });
+
+  it("migrates legacy capture markers to real NAM controls without retaining a NAM file", () => {
+    const legacy = structuredClone(testRigTemplates[0]);
+    const capture = legacy.blocks.find((block) => block.name === "Capture slot")!;
+    capture.parameters = [
+      { id: "Input", sourceProperty: "Input", label: "Input", value: 7.5, writable: true },
+      { id: "mix", sourceProperty: "mix", label: "Mix", value: 42, writable: true },
+      { id: "LoadedClone", sourceProperty: "LoadedClone", label: "NAM file", value: "Models/private.nam", writable: true, deviceFile: { fileType: 7, startPath: "Models" } },
+    ];
+
+    const [migrated] = migratePersistedTestRigNamControls([legacy]);
+    const parameters = migrated.blocks.find((block) => block.name === "Capture slot")!.parameters;
+    expect(parameters.find((parameter) => parameter.id === "Input")).toMatchObject({ value: 7.5, min: -20, max: 20, normalized: true });
+    expect(parameters.find((parameter) => parameter.id === "Output")).toMatchObject({ value: 0, min: -40, max: 40, normalized: true });
+    expect(parameters.map((parameter) => parameter.id)).toEqual(expect.arrayContaining(["Output", "Threshold", "Gate", "EQ", "Bass", "Middle", "Treble", "Normalize", "LightMode"]));
+    expect(parameters.some((parameter) => parameter.deviceFile || /LoadedClone|FileMissing/i.test(parameter.id))).toBe(false);
+    expect(parameters.some((parameter) => parameter.id === "mix")).toBe(false);
+    expect(migratePersistedTestRigNamControls([migrated])).toEqual([migrated]);
   });
 
   it("adds reference blocks to open unrestricted slots without moving fixed hosts", () => {
@@ -142,6 +178,18 @@ describe("TonePilot local test sets", () => {
 
     const [repaired] = migratePersistedTestRigIrFiles([customized]);
     expect(repaired.blocks.find((block) => block.category === "ir")?.parameters.find((parameter) => parameter.id === "IR")?.value).toBe("Impulse Responses/User/My Cab.wav");
+  });
+
+  it("updates legacy seeded IR cuts once while preserving user-adjusted values", () => {
+    const legacy = structuredClone(testRigTemplates.find((rig) => rig.id === "clean")!);
+    const ir = legacy.blocks.find((block) => block.id === "clean-ir")!;
+    ir.parameters.find((parameter) => parameter.id === "LoCut")!.value = 75;
+    ir.parameters.find((parameter) => parameter.id === "HiCut")!.value = 9300;
+
+    const [migrated] = migratePersistedTestRigIrCuts([legacy]);
+    const parameters = migrated.blocks.find((block) => block.id === "clean-ir")!.parameters;
+    expect(parameters.find((parameter) => parameter.id === "LoCut")?.value).toBe(65);
+    expect(parameters.find((parameter) => parameter.id === "HiCut")?.value).toBe(9300);
   });
 
   it("keeps the selected IR when refreshed device controls return an empty file value", () => {

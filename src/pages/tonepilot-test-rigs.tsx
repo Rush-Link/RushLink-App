@@ -11,7 +11,7 @@ import {
   testRigSlotAllowsBlock, testRigSlotRole, validateTestRig,
 } from "../domain/tone-analysis";
 import { BLOCK_CATEGORY_COLORS, BLOCK_CATEGORY_GROUPS, BLOCK_CATEGORY_LABELS, blockBelongsToCategoryGroup, categoryForBlockName, type BlockCategoryGroupId } from "../domain/block-categories";
-import { parametersForObject } from "../domain/headrush-reflection";
+import { parametersForObject, SLOT_EQ_PROPERTIES } from "../domain/headrush-reflection";
 import { testRigModulePath } from "../domain/tone-audition-chain";
 import { cn } from "../lib/utils";
 import { useAppStore } from "../stores/app-store";
@@ -22,7 +22,25 @@ import { SlotDragPreview } from "../components/system/slot-drag-preview";
 
 const TEST_RIG_DEMO_MODULES = ["Amp", "ReValver Amp", "Cab", "IR", "Amp Clone", "Pedal Clone", "Neural Amp Modeler", "Gray Comp", "DynIII Comp", "Graphic EQ", "Ten Freq EQ", "Para EQ", "AIR Reverb", "Spring Reverb", "AIR Delay", "Tape Echo", "BBD Delay", "Reverse Delay", "Noise Filter", "Gate", "Stereo Doubler", "Green JRC-OD", "White Boost", "Tri Fuzz", "D1 Dist", "AIR Filter", "Chorus", "Multi Chorus", "Flanger", "Vibe Phaser", "Vibrato", "Rotary", "Tremolo", "Shine Wah", "Black Wah", "Wham", "Smart Harm", "Octaves", "Drop Tune", "Shimmer", "Pitch Delay", "Sustain", "Hold", "Pressor", "G EQ", "FX-Loop"];
 
+const isNamFileParameter = (parameter: Parameter) => Boolean(parameter.deviceFile)
+  || /^(?:LoadedClone|FileMissing)\d*$/i.test(parameter.sourceProperty || parameter.id);
+const editableParametersFor = (block: RigBlock | null) => block?.name === "Capture slot"
+  ? block.parameters.filter((parameter) => !isNamFileParameter(parameter))
+  : block?.parameters ?? [];
+
 export function TestRigParameterEditor({ parameters, onChange, onPreview }: { parameters: Parameter[]; onChange: (parameterId: string, value: Parameter["value"]) => void; onPreview?: (parameter: Parameter, value: Parameter["value"]) => Promise<void> | void }) {
+  // Some dual-cab models advertise identical labels for both channels. Keep
+  // reflected IDs/values intact, but make the visible controls distinguishable.
+  const labels = parameters.map((parameter) => parameter.label
+    .replace(/^CabType$/i, "Cabinet").replace(/^MicType$/i, "Microphone")
+    .replace(/([a-z])([A-Z])/g, "$1 $2"));
+  const keys = parameters.map((parameter, index) => `${parameter.deviceFile ? "file" : parameter.id.startsWith("Slt") ? "advanced" : "core"}:${labels[index]}`);
+  parameters = parameters.map((parameter, index) => ({
+    ...parameter,
+    label: keys.filter((key) => key === keys[index]).length > 1
+      ? `${labels[index]} ${keys.slice(0, index + 1).filter((key) => key === keys[index]).length}`
+      : labels[index],
+  }));
   const files = parameters.filter((parameter) => parameter.deviceFile);
   const advanced = parameters.filter((parameter) => !parameter.deviceFile && parameter.id.startsWith("Slt"));
   const core = parameters.filter((parameter) => !parameter.deviceFile && !parameter.id.startsWith("Slt"));
@@ -76,14 +94,20 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
 
   useEffect(() => { setCategory("all"); }, [targetSlot]);
 
-  const reflectedParameters = async (name: string) => {
+  const reflectedParameters = async (name: string, captureHost = false) => {
     const path = testRigModulePath(name);
     let tree = store.liveSubtree;
     if (deviceApi.isNative()) {
       try { tree = { ...(tree ?? {}), ...(await deviceApi.subtree(path) as HeadRushSubtree) }; }
       catch { /* The block remains usable even if this firmware exposes no parameter schema. */ }
     }
-    return parametersForObject(tree?.[path]).map((parameter) => ({ ...parameter, deviceObjectPath: path }));
+    const object = tree?.[path];
+    const advertised = Array.isArray(object?.value?.order) ? object.value.order.filter((value): value is string => typeof value === "string") : [];
+    const reflectedOrder = advertised.length ? advertised : Object.keys(object?.meta?.properties ?? {});
+    const include = captureHost ? [...new Set([...reflectedOrder, ...SLOT_EQ_PROPERTIES])] : undefined;
+    return parametersForObject(object, include)
+      .filter((parameter) => !captureHost || !isNamFileParameter(parameter))
+      .map((parameter) => ({ ...parameter, deviceObjectPath: path }));
   };
 
   const chooseBlock = async (choice: typeof choices[number]) => {
@@ -105,10 +129,10 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
   };
 
   const refreshControls = async () => {
-    if (!selectedBlock || selectedBlock.name === "Capture slot" || ["input", "output"].includes(selectedBlock.category)) return;
+    if (!selectedBlock || ["input", "output"].includes(selectedBlock.category)) return;
     setControlsBusy(true);
     try {
-      const parameters = await reflectedParameters(selectedBlock.model);
+      const parameters = await reflectedParameters(selectedBlock.model, selectedBlock.name === "Capture slot");
       store.updateTestRigBlock(selectedBlock.id, { parameters, sourcePath: testRigModulePath(selectedBlock.model) });
     } finally { setControlsBusy(false); }
   };
@@ -119,6 +143,8 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
     if (response.status < 200 || response.status >= 300) throw new Error(`Flex Prime rejected ${parameter.label} with status ${response.status}.`);
   } : undefined;
   const protectedBlock = selectedBlock && (selectedBlock.name === "Capture slot" || ["input", "output"].includes(selectedBlock.category));
+  const boundaryBlock = selectedBlock && ["input", "output"].includes(selectedBlock.category);
+  const editableParameters = editableParametersFor(selectedBlock);
   const validation = rig ? validateTestRig(rig.blocks) : null;
 
   return <Dialog open={open} onClose={onClose} title={rig ? `Edit ${rig.name}` : "Edit Test Rig"} description="Build the complete temporary signal path. Changes save to RushLink automatically and update an active Flex Prime audition after a short debounce." width="1240px" footer={<><span className={cn("tp-editor-sync", live && "live", store.testRigSyncError && "error")}><Radio size={13}/>{store.testRigSyncBusy ? "Applying to Flex Prime…" : store.testRigSyncError ? store.testRigSyncError : live ? "Live apply is on" : "Saved locally · audition to apply"}</span><Button variant="primary" onClick={onClose}><Check size={15}/> Done</Button></>}>
@@ -153,9 +179,10 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
               <Button size="sm" disabled={Boolean(protectedBlock)} onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={14}/> : <Check size={14}/>} {selectedBlock.enabled ? "Bypass" : "Enable"}</Button>
               <IconButton label={`Remove ${selectedBlock.name}`} disabled={Boolean(protectedBlock)} onClick={() => { store.removeTestRigBlock(selectedBlock.id); setSelectedBlockId(""); }}><Trash2 size={15}/></IconButton>
             </div>
-            {protectedBlock ? <div className="tp-editor-protected"><LockKeyhole size={18}/><span><strong>{selectedBlock.name === "Capture slot" ? "Audition host marker" : "Signal boundary"}</strong><small>{selectedBlock.name === "Capture slot" ? "The downloaded NAM, clone or IR is anchored here. Move surrounding blocks instead." : "Input and output are visual references and cannot be removed or replaced."}</small></span></div> : <>
-              <div className="tp-editor-parameter-head"><span><strong>Block controls</strong><small>{selectedBlock.parameters.length ? `${selectedBlock.parameters.length} reflected controls` : "No saved parameter schema"}</small></span><Button size="sm" loading={controlsBusy} onClick={() => void refreshControls()}><RefreshCw size={13}/> Read from device</Button></div>
-              {selectedBlock.parameters.length ? <TestRigParameterEditor parameters={selectedBlock.parameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <div className="tp-editor-no-parameters"><SlidersHorizontal size={19}/><span><strong>Controls are not cached yet</strong><small>Read the reflected control schema from Flex Prime, or audition this plan first.</small></span></div>}
+            {boundaryBlock ? <div className="tp-editor-protected"><LockKeyhole size={18}/><span><strong>Signal boundary</strong><small>Input and output are visual references and cannot be removed or replaced.</small></span></div> : <>
+              {selectedBlock.name === "Capture slot" && <div className="tp-editor-protected tp-editor-protected--nam"><LockKeyhole size={18}/><span><strong>NAM host position and file are protected</strong><small>TonePilot supplies the auditioned NAM file. Every sound-shaping control below remains editable.</small></span></div>}
+              <div className="tp-editor-parameter-head"><span><strong>{selectedBlock.name === "Capture slot" ? "NAM host controls" : "Block controls"}</strong><small>{editableParameters.length ? `${editableParameters.length} editable controls` : "No saved parameter schema"}</small></span><Button size="sm" loading={controlsBusy} onClick={() => void refreshControls()}><RefreshCw size={13}/> Read from device</Button></div>
+              {editableParameters.length ? <TestRigParameterEditor parameters={editableParameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <div className="tp-editor-no-parameters"><SlidersHorizontal size={19}/><span><strong>Controls are not cached yet</strong><small>Read the reflected control schema from Flex Prime, or audition this plan first.</small></span></div>}
             </>}
           </> : <div className="tp-editor-protected"><Plus size={18}/><span><strong>Slot {(targetSlot ?? 0) + 1} is ready</strong><small>Select an effect on the right. It will be inserted here without saving a rig to the pedal.</small></span></div>}
         </section>
@@ -196,6 +223,7 @@ export function TonePilotTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
   const [setName, setSetName] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const selectedBlock = rig?.blocks.find((block) => block.id === selectedBlockId) ?? null;
+  const selectedBlockParameters = editableParametersFor(selectedBlock);
   const draggedBlock = rig?.blocks.find((block) => block.id === slotDrag.dragSource) ?? null;
   const previewTestRigFile = store.auditioningToneId && deviceApi.isNative() && selectedBlock ? async (parameter: Parameter, value: Parameter["value"]) => {
     const response = await deviceApi.setProperties(testRigModulePath(selectedBlock.model), { [parameter.sourceProperty ?? parameter.id]: value });
@@ -261,7 +289,7 @@ export function TonePilotTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
               <i/><span><small>SLOT {slot + 1}</small><strong>{block.name}</strong><small>{block.model}</small></span><em className="tp-config-drag-state">{positionLocked ? <LockKeyhole size={12}/> : <GripVertical size={13}/>}</em><b data-no-chain-drag onClick={(event) => { event.stopPropagation(); if (!protectedBlock) store.toggleTestRigBlock(block.id); }}>{protectedBlock ? <LockKeyhole size={13}/> : block.enabled ? "ON" : "OFF"}</b>
             </button>;
           })}</div>
-          {selectedBlock && <div className="tp-block-settings"><div><span><strong>{selectedBlock.name}</strong><small>{selectedBlock.name === "Capture slot" ? "Reserved marker for the auditioned profile" : `Slot ${selectedBlock.slot + 1} · ${selectedBlock.enabled ? "planned active" : "planned bypassed"}`}</small></span>{selectedBlock.name !== "Capture slot" && <Button size="sm" onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={13}/> : <Check size={13}/>} {selectedBlock.enabled ? "Bypass in plan" : "Enable in plan"}</Button>}</div>{selectedBlock.name !== "Capture slot" && selectedBlock.parameters.length ? <TestRigParameterEditor parameters={selectedBlock.parameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <p>The capture marker has no local parameters. Select another block to edit its documented reference values.</p>}</div>}
+          {selectedBlock && <div className="tp-block-settings"><div><span><strong>{selectedBlock.name}</strong><small>{selectedBlock.name === "Capture slot" ? "Fixed NAM host · profile file is managed by audition" : `Slot ${selectedBlock.slot + 1} · ${selectedBlock.enabled ? "planned active" : "planned bypassed"}`}</small></span>{selectedBlock.name !== "Capture slot" && <Button size="sm" onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={13}/> : <Check size={13}/>} {selectedBlock.enabled ? "Bypass in plan" : "Enable in plan"}</Button>}</div>{selectedBlockParameters.length ? <TestRigParameterEditor parameters={selectedBlockParameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <p>No editable parameters are available for this block yet.</p>}</div>}
         </Card>
       </div>
     </div>

@@ -1,0 +1,70 @@
+name: Build RushLink Linux preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'build/linux-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # Keep proprietary sources and preview artifacts in the private repository.
+    if: github.event.repository.private == true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      APPIMAGE_EXTRACT_AND_RUN: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file libwebkit2gtk-4.1-dev \
+            libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+      - name: Install browser for release checks
+        run: npx playwright install --with-deps chromium
+      - name: Test application
+        run: npm test
+      - name: Test native Linux transport
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Verify clean release payload
+        run: npm run release:check
+      - name: Build Debian and AppImage packages
+        run: npm run tauri -- build --ci --bundles deb,appimage -- --locked
+      - name: Stage installers and checksums only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-artifacts/linux-x64
+          cp src-tauri/target/release/bundle/deb/*.deb release-artifacts/linux-x64/
+          cp src-tauri/target/release/bundle/appimage/*.AppImage release-artifacts/linux-x64/
+          cd release-artifacts/linux-x64
+          sha256sum -- *.deb *.AppImage > SHA256SUMS-linux-x64.txt
+          sha256sum --check SHA256SUMS-linux-x64.txt
+      - name: Upload private Linux preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: RushLink-linux-x64-${{ github.run_number }}
+          path: release-artifacts/linux-x64/
+          if-no-files-found: error
+          retention-days: 14

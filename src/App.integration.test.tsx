@@ -144,6 +144,7 @@ describe("RushLink application integration", () => {
     }
     fireEvent.click(screen.getByRole("button", { name: /^Diagnostics/ }));
     await waitFor(() => expect(pageTitle(container)).toBe("Diagnostics"));
+    expect(screen.queryByText(/EVENT STREAM/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("tab", { name: /API console/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/raw API requests/i)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: /Capabilities/i }));

@@ -84,7 +84,7 @@ describe("app-store persistence performance", () => {
 
     const migrated = migratePersistedAppState({ testRigs: versionThreeRigs }, 3);
 
-    expect(APP_STATE_VERSION).toBe(4);
+    expect(APP_STATE_VERSION).toBe(6);
     expect(migrated.testRigs).toHaveLength(testRigTemplates.length);
     for (const rig of migrated.testRigs!) {
       const expected = testRigTemplates.find((template) => template.id === rig.id)!;

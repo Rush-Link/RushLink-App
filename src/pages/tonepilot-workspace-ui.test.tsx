@@ -1,6 +1,6 @@
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { demoCapabilities, demoDevice, demoRigs, testRigTemplates } from "../data/demo-data";
+import { demoCapabilities, demoDevice, demoRigs, demoSetlists, testRigTemplates } from "../data/demo-data";
 import type { CloudTone, ToneModel } from "../domain/types";
 import { deviceApi } from "../services/device-api";
 import { useAppStore } from "../stores/app-store";
@@ -19,6 +19,7 @@ function resetTonePilot() {
     device: { ...demoDevice, status: "ready" }, capabilities: structuredClone(demoCapabilities),
     liveSubtree: { "/Evil/API/Tone3000": { value: { isLoggedIn: true }, meta: { properties: {} } } },
     liveSnapshot: null, rigs: structuredClone(demoRigs), selectedRigId: demoRigs[0].id,
+    setlists: structuredClone(demoSetlists), selectedSetlistId: demoSetlists[0].id,
     tones: [tone], selectedToneId: tone.id, toneModels: { [tone.id]: [model] }, selectedToneModelId: model.id,
     toneLoading: false, toneModelLoading: false, toneError: null, toneModelError: null, auditionError: null,
     toneUpdatedAtBySource: { tone3000: Date.now(), headRushCloud: Date.now() },
@@ -70,17 +71,119 @@ describe("TonePilot audition workspace UI", () => {
     const dock = container.querySelector(".audition-actions");
     expect(dock).toHaveAttribute("aria-label", "Tone audition actions");
     expect(dock?.querySelector(".audition-actions__transport")).toContainElement(screen.getByRole("button", { name: /Audition on HeadRush/i }));
-    expect(dock?.querySelector(".audition-actions__secondary")).toContainElement(screen.getByRole("button", { name: /Save to device/i }));
+    expect(dock?.querySelector(".audition-actions__secondary")).toContainElement(screen.getByRole("button", { name: /Download source/i }));
     expect(screen.queryByRole("button", { name: /Record test phrase/i })).not.toBeInTheDocument();
   });
 
-  it("keeps stop and restart together while a tone is active", () => {
+  it("places a quick editable NAM output above the HeadRush audition transport", () => {
+    const { container } = render(<ToneLabPage/>);
+    const dock = container.querySelector(".audition-actions")!;
+    const quickOutput = screen.getByRole("region", { name: "Quick NAM output" });
+    const transport = dock.querySelector(".audition-actions__transport")!;
+    expect(quickOutput).toBeInTheDocument();
+    expect(quickOutput.compareDocumentPosition(transport) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const slider = within(quickOutput).getByRole("slider", { name: "NAM output" });
+    expect(slider).toHaveAttribute("min", "-40");
+    expect(slider).toHaveAttribute("max", "40");
+    fireEvent.change(slider, { target: { value: "8" } });
+    const capture = useAppStore.getState().testRigs[0].blocks.find((block) => block.name === "Capture slot")!;
+    expect(capture.parameters.find((parameter) => parameter.id === "Output")?.value).toBe(8);
+    expect(capture.parameters.find((parameter) => parameter.id === "Input")?.value).toBe(0);
+  });
+
+  it("does not show the NAM output shortcut for an IR-only treatment", () => {
+    useAppStore.setState({ captureOverride: "ir" });
+    render(<ToneLabPage/>);
+    expect(screen.queryByRole("region", { name: "Quick NAM output" })).not.toBeInTheDocument();
+  });
+
+  it("replaces the active audition button with stop, refresh, and save-to-rigs actions", () => {
     useAppStore.setState({ auditioningToneId: tone.id });
     const { container } = render(<ToneLabPage/>);
-    const transport = container.querySelector(".audition-actions__transport");
+    const transport = container.querySelector<HTMLElement>(".audition-actions__transport")!;
     expect(transport).toHaveClass("is-active");
-    expect(transport).toContainElement(screen.getByRole("button", { name: /^Stop$/i }));
-    expect(transport).toContainElement(screen.getByRole("button", { name: /Audition again on HeadRush/i }));
+    expect(within(transport).getAllByRole("button")).toHaveLength(3);
+    expect(within(transport).getByRole("button", { name: /^Stop$/i })).toBeInTheDocument();
+    expect(within(transport).getByRole("button", { name: /^Refresh rig$/i })).toBeInTheDocument();
+    expect(within(transport).getByRole("button", { name: /^Save to rigs$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Audition again on HeadRush/i })).not.toBeInTheDocument();
+  });
+
+  it("moves keyboard focus to refresh after auditioning and back to audition after stopping", async () => {
+    const auditionTone = vi.spyOn(useAppStore.getState(), "auditionTone").mockImplementation(async () => {
+      useAppStore.setState({ auditioningToneId: tone.id });
+    });
+    const stopAudition = vi.spyOn(useAppStore.getState(), "stopAudition").mockImplementation(async () => {
+      useAppStore.setState({ auditioningToneId: null });
+    });
+    render(<ToneLabPage/>);
+
+    const audition = screen.getByRole("button", { name: "Audition on HeadRush" });
+    audition.focus();
+    fireEvent.click(audition);
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh rig" })).toHaveFocus());
+    expect(auditionTone).toHaveBeenCalledWith(tone);
+
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Audition on HeadRush" })).toHaveFocus());
+    expect(stopAudition).toHaveBeenCalledOnce();
+  });
+
+  it("refreshes the active rig through the existing audition path and opens the save dialog", () => {
+    useAppStore.setState({ auditioningToneId: tone.id });
+    const audition = vi.spyOn(useAppStore.getState(), "auditionTone").mockResolvedValue();
+    render(<ToneLabPage/>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh rig" }));
+    expect(audition).toHaveBeenCalledWith(tone);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save to rigs" }));
+    expect(screen.getByRole("dialog", { name: "Save audition to Rigs" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /Add to setlist/i })).toHaveValue("");
+  });
+
+  it("keeps a dismissed save dialog closed when the active audition ends and later restarts", async () => {
+    useAppStore.setState({ auditioningToneId: tone.id });
+    render(<ToneLabPage/>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save to rigs" }));
+    expect(screen.getByRole("dialog", { name: "Save audition to Rigs" })).toBeInTheDocument();
+
+    act(() => useAppStore.setState({ auditioningToneId: null }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Save audition to Rigs" })).not.toBeInTheDocument());
+
+    act(() => useAppStore.setState({ auditioningToneId: tone.id }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Refresh rig" })).toBeInTheDocument());
+    expect(screen.queryByRole("dialog", { name: "Save audition to Rigs" })).not.toBeInTheDocument();
+  });
+
+  it("confirms a successful rig save while keeping the active audition controls", async () => {
+    useAppStore.setState({ auditioningToneId: tone.id });
+    const save = vi.spyOn(useAppStore.getState(), "saveAuditionRig").mockResolvedValue({ rigId: "saved-rig", name: "QA Amp", setlistName: "Show" });
+    render(<ToneLabPage/>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save to rigs" }));
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    await waitFor(() => expect(within(dialog).getByLabelText("Rig name")).toHaveValue("QA Amp"));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save to Rigs" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledOnce());
+    expect(screen.getByRole("status")).toHaveTextContent("Saved “QA Amp” to Rigs");
+    expect(screen.getByRole("status")).toHaveTextContent("Also added to Show");
+    expect(screen.getByRole("button", { name: "Refresh rig" })).toBeInTheDocument();
+  });
+
+  it("does not offer refresh or save for a catalogue tone that is not the active audition", () => {
+    const otherTone = { ...tone, id: "other-tone", title: "Other amp" };
+    useAppStore.setState({ tones: [tone, otherTone], selectedToneId: otherTone.id, auditioningToneId: tone.id });
+    render(<ToneLabPage/>);
+
+    expect(screen.getByRole("button", { name: /^Stop$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Audition on HeadRush" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Refresh rig" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save to rigs" })).not.toBeInTheDocument();
   });
 
   it("uses clear HeadRush audition wording and invokes the selected tone once", () => {
@@ -175,6 +278,22 @@ describe("TonePilot Test Rig Studio UI", () => {
     expect(dialog.querySelector('[aria-label="Fixed Test Rig slot roles"]')).toHaveTextContent("DRIVE");
     expect(screen.getByRole("button", { name: /^Favourites$/i })).toBeInTheDocument();
     expect(container.querySelector(".tp-config-chain--slots")?.children).toHaveLength(14);
+  });
+
+  it("edits every NAM host control while keeping the audition file unavailable", () => {
+    render(<TonePilotTestRigStudio onBrowse={vi.fn()}/>);
+    fireEvent.click(screen.getByRole("button", { name: /Full editor/i }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("NAM host controls")).toBeInTheDocument();
+    expect(within(dialog).getByRole("slider", { name: "Input" })).toHaveValue("0");
+    expect(within(dialog).getByRole("slider", { name: "Output" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Gate")).toBeInTheDocument();
+    expect(within(dialog).getByText("Lite Mode")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Loaded device file")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: /Browse.*NAM/i })).not.toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByRole("slider", { name: "Input" }), { target: { value: "-3.4" } });
+    expect(useAppStore.getState().testRigs[0].blocks.find((block) => block.name === "Capture slot")?.parameters.find((parameter) => parameter.id === "Input")?.value).toBe(-3.4);
   });
 
   it("reflects controls when adding a compatible block and can refresh them from the device", async () => {

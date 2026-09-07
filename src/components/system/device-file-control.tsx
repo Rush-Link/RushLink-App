@@ -4,6 +4,7 @@ import type { Parameter } from "../../domain/types";
 import { deviceApi } from "../../services/device-api";
 import { deviceErrorMessage } from "../../services/device-errors";
 import { Button, Dialog, Input } from "../ui";
+import "../../styles/device-file-picker.css";
 
 const joinPath = (parent: string, child: string) => `${parent.replace(/\/$/, "")}/${child.replace(/^\//, "")}`;
 const leafName = (path: string) => path.split("/").filter(Boolean).at(-1) ?? path;

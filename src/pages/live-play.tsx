@@ -19,6 +19,8 @@ import { midiConnection, useMidiConnection } from "../services/midi-connection";
 import { useAppStore } from "../stores/app-store";
 import { Badge, Button, Card, Dialog, IconButton, Input, Label, Select } from "../components/ui";
 import { cn } from "../lib/utils";
+import "../styles/live-tone.css";
+import "../styles/stagehand-v2.css";
 
 const icons: Record<string, React.ElementType> = {
   "skip-back": SkipBack, "skip-forward": SkipForward, timer: Timer, gauge: Gauge,

@@ -1,9 +1,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { createBufferedPersistStorage } from "./buffered-persist-storage";
-import { cloudTones, defaultLiveLayout, defaultLiveStage, demoRigs, demoSetlists, demoSnapshots, testRigTemplates } from "../data/demo-data";
+import { cloudTones, defaultLiveLayout, defaultLiveStage, demoRigs, demoSetlists, demoSnapshots, testRigNamControls, testRigTemplates } from "../data/demo-data";
 import type { CaptureType, CloudTone, DeviceCapabilities, DeviceInfo, DiagnosticEvent, HeadRushSubtree, LiveActionType, LiveButton, LiveControlPreset, LiveDeviceSnapshot, LiveGesture, LiveLayout, LiveStage, LiveStageSpacing, MidiCommand, PendingWrite, Rig, RigBlock, RigHistoryEntry, Setlist, Snapshot, TestRigTemplate, ToneModel, WriteMode } from "../domain/types";
-import { DEFAULT_TONE3000_FILTERS, deviceApi, type Tone3000SearchFilters } from "../services/device-api";
+import { DEFAULT_TONE3000_FILTERS, deviceApi, tone3000ModelFilename, type Tone3000SearchFilters } from "../services/device-api";
 import { DEVICE_FIRST_ROW_COLUMNS, normalizeLiveDimensions, normalizeLiveMidiCommand, normalizeLiveStageSpacing, resizeLiveLayout } from "../domain/live-layout";
 import { addBlockToTestRig, CAPTURE_SLOT_NAME, detectCaptureType, duplicateTestRigBlock, effectiveCaptureType, mergeTestRigParameters, normalizeTestRigEffectOrder, normalizeTestRigSlots, placeTestRigBlock, testRigSlotAllowsBlock, toneProviderReadiness, validateTestRig } from "../domain/tone-analysis";
 import { parameterDeviceValue, parseHeadRushSubtree } from "../domain/headrush-reflection";
@@ -36,8 +36,237 @@ interface ToneTestSet {
   rigIds: string[];
 }
 
+const normalizedDeviceFile = (value: string) => value.replaceAll("\\", "/").trim().toLocaleLowerCase();
+
+function deviceFileMatches(actual: unknown, expected: unknown): boolean {
+  if (typeof actual !== "string" || typeof expected !== "string" || !actual.trim() || !expected.trim()) return false;
+  const normalizedActual = normalizedDeviceFile(actual);
+  const normalizedExpected = normalizedDeviceFile(expected);
+  return normalizedActual === normalizedExpected || normalizedActual.endsWith(`/${normalizedExpected.split("/").at(-1)}`);
+}
+
+const missingPropertyForCapture = (property: TestRigCaptureFile["property"]) => property.endsWith("2") ? "FileMissing2" : "FileMissing";
+
+async function bindAndVerifyDurableCapture(
+  captureFile: TestRigCaptureFile,
+  durablePath: string,
+  label: string,
+): Promise<TestRigCaptureFile> {
+  const response = await deviceApi.setProperties(captureFile.path, { [captureFile.property]: durablePath });
+  assertDeviceMutation(response.status, `Binding ${label} to the Test Rig`);
+  const missingProperty = missingPropertyForCapture(captureFile.property);
+  let lastMissing = "";
+  for (const delay of AUDITION_SETTLE_DELAYS) {
+    await auditionDelay(delay);
+    const host = await deviceApi.properties(captureFile.path);
+    const missing = typeof host[missingProperty] === "string" ? host[missingProperty].trim() : "";
+    lastMissing = missing;
+    const loaded = typeof host[captureFile.property] === "string" ? String(host[captureFile.property]).trim() : "";
+    if (loaded && normalizedDeviceFile(loaded) === normalizedDeviceFile(durablePath) && !missing) {
+      return { ...captureFile, value: String(host[captureFile.property]).trim() };
+    }
+  }
+  const reason = lastMissing ? ` The device reported: ${lastMissing}.` : "";
+  throw new Error(`${label} was downloaded, but its permanent device file could not be loaded into the active Test Rig.${reason} The rig was not saved.`);
+}
+
+const deviceFilename = (value: string) => value.replaceAll("\\", "/").split("/").filter(Boolean).at(-1) ?? "";
+const deviceFileStem = (value: string) => deviceFilename(value).replace(/\.[^.]+$/, "").trim().toLocaleLowerCase();
+
+function availableCloudCloneName(requestedName: string, entries: string[]): string {
+  const base = (sanitizeHeadRushRigName(requestedName) || "TonePilot clone").slice(0, 160);
+  const used = new Set(entries.map(deviceFileStem));
+  for (let suffix = 0; suffix < 100; suffix++) {
+    const addition = suffix ? ` ${suffix + 1}` : "";
+    const candidate = `${base.slice(0, Math.max(1, 160 - addition.length))}${addition}`;
+    if (!used.has(candidate.toLocaleLowerCase())) return candidate;
+  }
+  throw new Error("HeadRush Cloud clone storage has too many items with this name. Choose another rig name.");
+}
+
+async function waitForCloudCloneFile(folder: string, downloadName: string): Promise<string> {
+  for (const delay of AUDITION_SETTLE_DELAYS) {
+    await auditionDelay(delay);
+    const files = await deviceApi.listDeviceFiles(folder, "clone");
+    const matching = files.filter((file) => deviceFileStem(file) === downloadName.toLocaleLowerCase());
+    if (matching.length === 1) return `${folder}/${deviceFilename(matching[0])}`;
+    if (matching.length > 1) throw new Error(`HeadRush returned more than one downloaded clone named "${downloadName}". The active Test Rig was not rebound or saved.`);
+  }
+  throw new Error(`HeadRush Cloud reported that "${downloadName}" downloaded, but its device file could not be verified. The active Test Rig was not saved.`);
+}
+
+async function ensureDurableAuditionSource(
+  audition: TonePilotAuditionIdentity,
+  requestedRigName: string,
+): Promise<TestRigCaptureFile | undefined> {
+  if (audition.tone.source === "Tone3000") {
+    if (!audition.model) throw new Error("The exact Tone3000 model used for this audition is no longer known. Restart the audition before saving.");
+    if (!audition.captureFile) throw new Error("The active Tone3000 file is not attached to a verified Test Rig host. Refresh the Test Rig before saving.");
+    const filename = tone3000ModelFilename(audition.model);
+    await deviceApi.downloadTone(audition.tone, audition.model);
+    return bindAndVerifyDurableCapture(
+      audition.captureFile,
+      `Neural Amp Modeler/Tone 3000/${filename}`,
+      `Tone3000 model "${audition.model.name}"`,
+    );
+  }
+
+  if (audition.tone.remoteKind !== "clone") {
+    // The official HeadRush client exposes downloadRig as the durable operation
+    // for a cloud rig. Its reflected return is validated by deviceApi.
+    await deviceApi.downloadTone(audition.tone, undefined, requestedRigName);
+    return audition.captureFile;
+  }
+
+  if (!audition.captureFile) {
+    throw new Error("The active HeadRush Cloud clone is not attached to a verified Test Rig host. Refresh the Test Rig before saving.");
+  }
+  const cloneType = `${audition.tone.gear ?? ""} ${audition.tone.metadata?.clone_type ?? ""} ${audition.captureFile.path}`.toLocaleUpperCase();
+  const folder = cloneType.includes("SUPERCLONE") ? "SuperClones/HeadRush Cloud" : "Amp Clones/HeadRush Cloud";
+  const existingFiles = await deviceApi.listDeviceFiles(folder, "clone");
+  const downloadName = availableCloudCloneName(requestedRigName, existingFiles);
+  await deviceApi.downloadTone(audition.tone, undefined, downloadName);
+  const durablePath = await waitForCloudCloneFile(folder, downloadName);
+  return bindAndVerifyDurableCapture(audition.captureFile, durablePath, `HeadRush Cloud clone "${audition.tone.title}"`);
+}
+
+interface TonePilotAuditionIdentity {
+  /** Immutable provider identity captured when the audition starts. */
+  tone: CloudTone;
+  /** Exact Tone3000 model used by startDemo; deliberately not inferred from later selection. */
+  model?: ToneModel;
+  /** Exact host and property carrying the provider file in the rebuilt Test Rig. */
+  captureFile?: TestRigCaptureFile;
+}
+
+interface TonePilotReturnTarget {
+  id: string;
+  name: string;
+  srId?: string;
+  snapshotId?: string;
+  auditionSource?: CloudTone["source"];
+  testRigApplied?: boolean;
+  testRigMessage?: string;
+  audition?: TonePilotAuditionIdentity;
+}
+
+export interface AuditionRigSaveOptions {
+  name: string;
+  /** Empty or omitted keeps the new rig out of setlists. */
+  setlistId?: string;
+  /** HeadRush stores the nine rig colours as values 1 through 9. */
+  color: number;
+  tempoMode: "current" | "fixed";
+  tempoBpm: number;
+  /** HeadRush stores Off as -1 and displayed programs 1-128 as 0-127. */
+  programChange: number;
+  overwrite?: boolean;
+}
+
+export interface AuditionRigSaveResult {
+  rigId: string;
+  name: string;
+  setlistName?: string;
+  warning?: string;
+}
+
+export class AuditionRigNameConflictError extends Error {
+  readonly code = "audition-rig-name-conflict";
+  constructor(readonly rigName: string) {
+    super(`A rig named “${rigName}” already exists. Confirm replacement to continue.`);
+    this.name = "AuditionRigNameConflictError";
+  }
+}
+
 const SEEDED_TEST_RIG_BLOCK_SUFFIXES = new Set(["input", "compressor", "drive", "amp", "capture", "ir", "delay", "eq", "verb", "output"]);
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const sanitizeHeadRushRigName = (name: string) => name.replace(/[<>:"/\\|?*]/g, "").trim().slice(0, 200);
+const headRushDocumentId = () => globalThis.crypto?.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+  const random = Math.floor(Math.random() * 16);
+  return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+});
+
+interface HeadRushSetlistDocument extends Record<string, unknown> {
+  id: string;
+  name: string;
+  data: Array<Record<string, unknown>>;
+}
+
+/**
+ * Builds the exact flat or song-view payload accepted by the reflected
+ * Setlists.saveSetlist method. The source document is always fetched from the
+ * pedal so placeholder rows in RushLink can never erase unseen setlist items.
+ */
+export function appendRigToHeadRushSetlist(
+  value: unknown,
+  setlistId: string,
+  setlistName: string,
+  rigId: string,
+  rigName: string,
+  songId = headRushDocumentId(),
+): HeadRushSetlistDocument {
+  const context = setlistName.trim() || setlistId;
+  let parsed: unknown;
+  try { parsed = typeof value === "string" ? JSON.parse(value) as unknown : value; }
+  catch { throw new Error(`HeadRush returned unreadable data for “${context}”. The setlist was not changed.`); }
+  if (!isRecord(parsed)) throw new Error(`HeadRush returned invalid data for “${context}”. The setlist was not changed.`);
+  const detail = parsed;
+  const invalid = (reason: string): never => { throw new Error(`HeadRush returned an invalid “${context}” setlist (${reason}). The setlist was not changed.`); };
+  if (typeof detail.id !== "string" || !detail.id.trim()) invalid("missing ID");
+  if (detail.id !== setlistId) invalid("device ID did not match the selected setlist");
+  if (typeof detail.name !== "string") invalid("missing name");
+  if (typeof detail.author !== "string") invalid("missing author");
+  if (typeof detail.readonly !== "boolean") invalid("missing read-only state");
+  if (typeof detail.version !== "string") invalid("missing version");
+  if (detail.readonly) throw new Error(`“${detail.name || context}” is read-only on the HeadRush. The saved rig was not added to it.`);
+  const documentName = detail.name as string;
+
+  if ("songs" in detail) {
+    if (!Array.isArray(detail.songs)) invalid("songs was not a list");
+    const songs = detail.songs as unknown[];
+    const data: Array<Record<string, unknown>> = [];
+    for (const rawSong of songs) {
+      const song = isRecord(rawSong) ? rawSong : invalid("a song row was not an object");
+      if (typeof song.song_id !== "string" || typeof song.song_name !== "string") invalid("a song row had no ID or name");
+      const rawRigIds = song.rigs;
+      const rawRigNames = song.rig_names;
+      const rigIds = Array.isArray(rawRigIds) && rawRigIds.every((id: unknown) => typeof id === "string")
+        ? rawRigIds as string[]
+        : invalid(`song “${song.song_name}” had invalid rig IDs`);
+      const rigNames = Array.isArray(rawRigNames) && rawRigNames.every((name: unknown) => typeof name === "string")
+        ? rawRigNames as string[]
+        : invalid(`song “${song.song_name}” had invalid rig names`);
+      if (rigIds.length !== rigNames.length) invalid(`song “${song.song_name}” had mismatched rig data`);
+      const existingSongId = song.song_id as string;
+      const existingSongName = song.song_name as string;
+      if (!rigIds.length) {
+        data.push({ song_id: existingSongId, song_name: existingSongName, rig_id: "", rig_name: "", empty_song: true });
+        continue;
+      }
+      rigIds.forEach((existingRigId, index) => data.push({
+        song_id: existingSongId,
+        song_name: existingSongName,
+        rig_id: existingRigId,
+        rig_name: rigNames[index] ?? "[Empty]",
+        empty_song: false,
+      }));
+    }
+    data.push({ song_id: songId, song_name: rigName, rig_id: rigId, rig_name: rigName, empty_song: false });
+    return { id: setlistId, name: documentName, data };
+  }
+
+  const hasRigs = "rigs" in detail;
+  const hasRigNames = "rig_names" in detail;
+  if (hasRigs !== hasRigNames) invalid("rig IDs and names were incomplete");
+  if (hasRigs && (!Array.isArray(detail.rigs) || !detail.rigs.every((id) => typeof id === "string"))) invalid("rig IDs were invalid");
+  if (hasRigNames && (!Array.isArray(detail.rig_names) || !detail.rig_names.every((name) => typeof name === "string"))) invalid("rig names were invalid");
+  const rigIds = hasRigs ? detail.rigs as string[] : [];
+  const rigNames = hasRigNames ? detail.rig_names as string[] : [];
+  if (rigIds.length !== rigNames.length) invalid("rig IDs and names had different lengths");
+  const nextRigIds = [...rigIds, rigId];
+  return { id: setlistId, name: documentName, data: nextRigIds.map((id, order) => ({ id, order })) };
+}
 
 function migrateSeededTestRigSounds(rigs: TestRigTemplate[]): TestRigTemplate[] {
   return rigs.map((rig) => {
@@ -107,7 +336,74 @@ export function migratePersistedTestRigIrFiles(rigs: TestRigTemplate[]): TestRig
   });
 }
 
-export const APP_STATE_VERSION = 4;
+const LEGACY_CAPTURE_CONTROL_IDS = new Set(["mix", "level", "tone"]);
+const captureParameterKey = (parameter: { id: string; sourceProperty?: string }) => (parameter.sourceProperty || parameter.id).toLocaleLowerCase();
+const isProtectedCaptureFileParameter = (parameter: { id: string; sourceProperty?: string; deviceFile?: unknown }) => Boolean(parameter.deviceFile)
+  || /^(?:loadedclone|filemissing)\d*$/i.test(parameter.sourceProperty || parameter.id);
+
+/**
+ * Upgrades persisted Test Rigs from the old generic Capture marker controls to
+ * the real Neural Amp Modeler schema. Existing sound values are retained, while
+ * provider-owned NAM file selectors are removed from RushLink's editable plan.
+ */
+export function migratePersistedTestRigNamControls(rigs: TestRigTemplate[]): TestRigTemplate[] {
+  const defaults = testRigNamControls();
+  const defaultKeys = new Set(defaults.map(captureParameterKey));
+  return rigs.map((rig) => ({
+    ...rig,
+    blocks: rig.blocks.map((block) => {
+      if (block.name !== CAPTURE_SLOT_NAME) return block;
+      const safeExisting = block.parameters.filter((parameter) => !isProtectedCaptureFileParameter(parameter)
+        && !LEGACY_CAPTURE_CONTROL_IDS.has(captureParameterKey(parameter)));
+      const existingByKey = new Map(safeExisting.map((parameter) => [captureParameterKey(parameter), parameter]));
+      const parameters = defaults.map((fallback) => {
+        const previous = existingByKey.get(captureParameterKey(fallback));
+        if (!previous) return structuredClone(fallback);
+        const { deviceFile: _deviceFile, ...safePrevious } = previous;
+        return { ...structuredClone(fallback), ...safePrevious, id: fallback.id, sourceProperty: fallback.sourceProperty };
+      });
+      for (const parameter of safeExisting) {
+        if (defaultKeys.has(captureParameterKey(parameter))) continue;
+        const { deviceFile: _deviceFile, ...safeParameter } = parameter;
+        parameters.push(safeParameter);
+      }
+      return { ...block, model: "Neural Amp Modeler", enabled: true, parameters };
+    }),
+  }));
+}
+
+const repairPersistedTestRigs = (rigs: TestRigTemplate[]) => migratePersistedTestRigNamControls(migratePersistedTestRigIrFiles(rigs));
+
+const LEGACY_TEST_RIG_IR_CUTS: Record<string, { low: number; high: number }> = {
+  clean: { low: 75, high: 8500 },
+  overdrive: { low: 80, high: 7500 },
+  distortion: { low: 80, high: 7200 },
+  lead: { low: 85, high: 6800 },
+  rhythm: { low: 90, high: 6500 },
+  metal: { low: 85, high: 6200 },
+};
+
+/** Applies the revised neutral IR bandwidth once to untouched seeded values. */
+export function migratePersistedTestRigIrCuts(rigs: TestRigTemplate[]): TestRigTemplate[] {
+  return rigs.map((rig) => {
+    const legacy = LEGACY_TEST_RIG_IR_CUTS[rig.id];
+    if (!legacy) return rig;
+    return {
+      ...rig,
+      blocks: rig.blocks.map((block) => block.id !== `${rig.id}-ir` ? block : {
+        ...block,
+        parameters: block.parameters.map((parameter) => {
+          const property = parameter.sourceProperty || parameter.id;
+          if (property === "LoCut" && parameter.value === legacy.low) return { ...parameter, value: 65 };
+          if (property === "HiCut" && parameter.value === legacy.high) return { ...parameter, value: 12000 };
+          return parameter;
+        }),
+      }),
+    };
+  });
+}
+
+export const APP_STATE_VERSION = 6;
 
 export function migratePersistedAppState(persistedState: unknown, persistedVersion: number): Partial<AppState> {
   if (!isRecord(persistedState)) return {};
@@ -118,6 +414,8 @@ export function migratePersistedAppState(persistedState: unknown, persistedVersi
   // Version 4 also repairs non-empty legacy file controls that were missing
   // reflection metadata or stored only a bare IR filename.
   if (persistedVersion < 4) testRigs = migratePersistedTestRigIrFiles(testRigs);
+  if (persistedVersion < 5) testRigs = migratePersistedTestRigNamControls(testRigs);
+  if (persistedVersion < 6) testRigs = migratePersistedTestRigIrCuts(testRigs);
   return { ...saved, testRigs };
 }
 
@@ -192,7 +490,7 @@ export interface AppState {
   selectedTestRigId: string;
   testRigSets: ToneTestSet[];
   selectedTestRigSetId: string;
-  testRigReturn: { id: string; name: string; srId?: string; snapshotId?: string; auditionSource?: CloudTone["source"]; testRigApplied?: boolean; testRigMessage?: string } | null;
+  testRigReturn: TonePilotReturnTarget | null;
   testRigSyncBusy: boolean;
   testRigSyncError: string | null;
   testRigSyncedAt: number | null;
@@ -289,6 +587,7 @@ export interface AppState {
   moveTestRigInSetlist: (from: number, to: number) => void;
   auditionTone: (tone: CloudTone) => Promise<void>;
   stopAudition: () => Promise<void>;
+  saveAuditionRig: (options: AuditionRigSaveOptions) => Promise<AuditionRigSaveResult>;
   finishToneTestSession: () => Promise<void>;
   applyPending: () => Promise<void>;
   discardPending: () => void;
@@ -405,6 +704,37 @@ function scheduleTestRigSync(get: () => AppState, delay = 360) {
     testRigSyncTimer = null;
     void get().syncActiveTestRig().catch(() => undefined);
   }, delay);
+}
+
+/**
+ * Saving must never overtake the debounced live editor. Drain any queued write,
+ * then run one final device sync from the latest in-memory Test Rig.
+ */
+async function flushActiveTestRigSync(get: () => AppState): Promise<void> {
+  let finalSyncRequired = true;
+  for (let pass = 0; pass < 8; pass += 1) {
+    if (testRigSyncTimer) {
+      clearTimeout(testRigSyncTimer);
+      testRigSyncTimer = null;
+      finalSyncRequired = true;
+    }
+    if (testRigSyncPromise) {
+      await testRigSyncPromise;
+      finalSyncRequired = true;
+      continue;
+    }
+    if (testRigSyncQueued) {
+      testRigSyncQueued = false;
+      finalSyncRequired = true;
+    }
+    if (finalSyncRequired) {
+      finalSyncRequired = false;
+      await get().syncActiveTestRig();
+      continue;
+    }
+    return;
+  }
+  throw new Error("The Test Rig kept changing while RushLink was preparing it. Let the last control settle, then save again.");
 }
 
 const normalizedTone3000Filters = (filters?: Tone3000SearchFilters): Tone3000SearchFilters => {
@@ -542,12 +872,6 @@ async function waitForProviderCaptureFile(plan: TestRigDevicePlan): Promise<Test
 
 async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree: HeadRushSubtree | null, captureFile: TestRigCaptureFile | null) {
   const reflectedSubtree: HeadRushSubtree = { ...(subtree ?? {}) };
-  const fileMatches = (actual: unknown, expected: unknown) => {
-    if (typeof actual !== "string" || typeof expected !== "string" || !actual.trim() || !expected.trim()) return false;
-    const normalizedActual = actual.replaceAll("\\", "/").toLocaleLowerCase();
-    const normalizedExpected = expected.replaceAll("\\", "/").toLocaleLowerCase();
-    return normalizedActual === normalizedExpected || normalizedActual.endsWith(`/${normalizedExpected.split("/").at(-1)}`);
-  };
   for (const assignment of plan.assignments) {
     const path = testRigModulePath(assignment.moduleName);
     if (!reflectedSubtree[path]) {
@@ -566,7 +890,7 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     const emptyFile = fileProperties.find((property) => typeof properties[property] !== "string" || !String(properties[property]).trim());
     if (emptyFile) throw new Error(`${assignment.block.name} has no file selected. Choose a compatible device file in Test Rig Studio before auditioning.`);
     const matches = (actual: Record<string, unknown>) => actual.On === assignment.enabled
-      && fileProperties.every((property) => fileMatches(actual[property], properties[property]));
+      && fileProperties.every((property) => deviceFileMatches(actual[property], properties[property]));
     const response = await deviceApi.setProperties(path, properties);
     assertDeviceMutation(response.status, `Configuring ${assignment.block.name}`);
 
@@ -585,7 +909,7 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
       }
     }
     if (actual.On !== assignment.enabled) throw new Error(`${assignment.block.name} is present, but Flex Prime did not ${assignment.enabled ? "enable" : "bypass"} it in the audio chain.`);
-    const missingFile = fileProperties.find((property) => !fileMatches(actual[property], properties[property]));
+    const missingFile = fileProperties.find((property) => !deviceFileMatches(actual[property], properties[property]));
     if (missingFile) {
       const requested = String(properties[missingFile] ?? "").trim();
       const label = requested.split(/[\\/]/).filter(Boolean).at(-1);
@@ -598,14 +922,19 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
   }
 }
 
-async function applyAndVerifyTestRig(plan: TestRigDevicePlan, currentModuleTypeIds: number[], subtree: HeadRushSubtree | null): Promise<string | null> {
+async function applyAndVerifyTestRig(
+  plan: TestRigDevicePlan,
+  currentModuleTypeIds: number[],
+  subtree: HeadRushSubtree | null,
+  knownCaptureFile?: TestRigCaptureFile,
+): Promise<TestRigCaptureFile | null> {
   if (!plan.complete) throw new Error(plan.message);
   if (!plan.applied) return null;
 
   // Read the provider-owned file before any ModuleType write. Creating the NAM
   // host in its reserved Test Rig slot resets LoadedClone on some firmware,
   // even though the provider demo screen still shows the selected profile.
-  const captureFile = await waitForProviderCaptureFile(plan);
+  const captureFile = knownCaptureFile ?? await waitForProviderCaptureFile(plan);
 
   // Create the provider-loaded NAM/IR host at its saved destination before
   // clearing the provider's temporary source slot. This keeps its loaded file
@@ -637,7 +966,7 @@ async function applyAndVerifyTestRig(plan: TestRigDevicePlan, currentModuleTypeI
     const missingProperty = captureFile.property.endsWith("2") ? "FileMissing2" : "FileMissing";
     const missingValue = host[missingProperty];
     const missing = typeof missingValue === "string" ? missingValue.trim() : "";
-    if (host.On === true && loadedFile && !missing && loadedFile.replaceAll("\\", "/").toLocaleLowerCase().endsWith(captureFile.value.replaceAll("\\", "/").toLocaleLowerCase().split("/").at(-1)!)) return loadedFile;
+    if (host.On === true && loadedFile && !missing && deviceFileMatches(loadedFile, captureFile.value)) return { ...captureFile, value: loadedFile };
   }
   throw new Error(`The ${capture.moduleName} host was created, but its selected file did not finish loading.`);
 }
@@ -981,7 +1310,7 @@ export function mergePersistedAppState(persisted: unknown, current: AppState): A
   const selectedLiveStageId = liveStages.some((stage) => stage.id === saved.selectedLiveStageId) ? saved.selectedLiveStageId! : liveStages[0].id;
   const liveLayout = liveStages.find((stage) => stage.id === selectedLiveStageId)?.layout ?? legacyLayout;
   const savedTestRigs = Array.isArray(saved.testRigs) ? saved.testRigs : current.testRigs;
-  const testRigs = migratePersistedTestRigIrFiles(migrateSeededTestRigSounds(savedTestRigs));
+  const testRigs = repairPersistedTestRigs(migrateSeededTestRigSounds(savedTestRigs));
   const savedTestRigSets = Array.isArray(saved.testRigSets) ? saved.testRigSets.filter((setlist) => isRecord(setlist) && Array.isArray(setlist.rigIds)) as ToneTestSet[] : null;
   const favoriteRigIds = Array.isArray(saved.favoriteRigIds) ? saved.favoriteRigIds.filter((rigId): rigId is string => typeof rigId === "string") : current.favoriteRigIds;
   const preferences = isRecord(saved.preferences) ? { ...current.preferences, ...saved.preferences as Partial<Preferences> } : current.preferences;
@@ -1771,7 +2100,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
       ...rig,
       blocks: normalizeTestRigSlots(rig.blocks.map((block) => {
-        if (block.id !== blockId || block.name === CAPTURE_SLOT_NAME) return block;
+        if (block.id !== blockId) return block;
+        if (block.name === CAPTURE_SLOT_NAME) {
+          const merged = patch.parameters
+            ? mergeTestRigParameters(block.parameters, patch.parameters).filter((parameter) => !isProtectedCaptureFileParameter(parameter))
+            : block.parameters.filter((parameter) => !isProtectedCaptureFileParameter(parameter));
+          return { ...block, sourcePath: patch.sourcePath ?? block.sourcePath, parameters: merged, enabled: true };
+        }
         const updated = { ...block, ...patch, parameters: patch.parameters ? mergeTestRigParameters(block.parameters, patch.parameters) : block.parameters, id: block.id, slot: block.slot };
         return testRigSlotAllowsBlock(block.slot, updated) ? updated : block;
       })),
@@ -1781,12 +2116,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   updateTestRigParameter: (blockId, parameterId, value) => {
     set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
       ...rig,
-      blocks: rig.blocks.map((block) => block.id !== blockId || block.name === CAPTURE_SLOT_NAME ? block : {
+      blocks: rig.blocks.map((block) => block.id !== blockId ? block : {
         ...block,
-        parameters: block.parameters.map((parameter) => parameter.id === parameterId && parameter.writable !== false ? { ...parameter, value } : parameter),
+        parameters: block.parameters.map((parameter) => parameter.id === parameterId
+          && parameter.writable !== false
+          && !(block.name === CAPTURE_SLOT_NAME && isProtectedCaptureFileParameter(parameter))
+          ? { ...parameter, value }
+          : parameter),
       }),
     }) }));
-    scheduleTestRigSync(get, 480);
+    scheduleTestRigSync(get, 260);
   },
   addTestRigBlock: (block, targetSlot) => {
     set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
@@ -1821,9 +2160,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     if (testRigSyncPromise) { testRigSyncQueued = true; return testRigSyncPromise; }
     const run = async () => {
       const state = get();
-      const repairedTestRigs = migratePersistedTestRigIrFiles(state.testRigs);
+      const repairedTestRigs = repairPersistedTestRigs(state.testRigs);
       set({ testRigs: repairedTestRigs });
-      const tone = state.tones.find((item) => item.id === state.auditioningToneId);
+      const storedAudition = state.testRigReturn?.audition;
+      const tone = storedAudition?.tone.id === state.auditioningToneId
+        ? storedAudition.tone
+        : state.tones.find((item) => item.id === state.auditioningToneId);
       const rig = repairedTestRigs.find((item) => item.id === state.selectedTestRigId);
       const validation = rig ? validateTestRig(rig.blocks) : null;
       if (!tone) throw new Error("The active audition item is no longer available in the catalogue cache.");
@@ -1844,13 +2186,20 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           currentModuleTypeIds,
         });
         if (!plan.complete) throw new Error(plan.message);
-        await applyAndVerifyTestRig(plan, currentModuleTypeIds, state.liveSubtree);
+        const captureFile = await applyAndVerifyTestRig(plan, currentModuleTypeIds, state.liveSubtree, storedAudition?.captureFile);
         const syncedAt = Date.now();
         set((latest) => ({
           testRigSyncBusy: false,
           testRigSyncError: null,
           testRigSyncedAt: syncedAt,
-          testRigReturn: latest.testRigReturn ? { ...latest.testRigReturn, testRigApplied: plan.applied, testRigMessage: plan.message } : null,
+          testRigReturn: latest.testRigReturn ? {
+            ...latest.testRigReturn,
+            testRigApplied: plan.applied,
+            testRigMessage: plan.message,
+            audition: latest.testRigReturn.audition
+              ? { ...latest.testRigReturn.audition, captureFile: captureFile ?? latest.testRigReturn.audition.captureFile }
+              : { tone: structuredClone(tone), captureFile: captureFile ?? undefined },
+          } : null,
         }));
         void get().refreshPage("tone-cloud", "manual");
       } catch (error) {
@@ -1892,7 +2241,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       set({ auditionError: message });
       throw new Error(message);
     }
-    const repairedTestRigs = migratePersistedTestRigIrFiles(stateBeforeAudition.testRigs);
+    const repairedTestRigs = repairPersistedTestRigs(stateBeforeAudition.testRigs);
     set({ testRigs: repairedTestRigs });
     const rig = repairedTestRigs.find((item) => item.id === stateBeforeAudition.selectedTestRigId);
     const validation = rig ? validateTestRig(rig.blocks) : null;
@@ -1908,6 +2257,12 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         throw new Error(message);
       }
     }
+
+    // Provider lists and selected-model state can change while the pedal is
+    // building the Test Rig. Everything saved later must refer to this exact
+    // audition, never whichever catalogue row happens to be selected then.
+    const auditionTone = structuredClone(tone);
+    const auditionModel = model ? structuredClone(model) : undefined;
 
     if (stateBeforeAudition.auditioningToneId) await get().stopAudition();
     const stateAfterStop = get();
@@ -1927,14 +2282,15 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         testRigReturn = { id: startingRig.id, name: startingRig.name, srId: loadedSummary?.srId, snapshotId };
       }
       recoveryTarget = testRigReturn;
-      const type = effectiveCaptureType(tone, get().captureOverride);
+      const type = effectiveCaptureType(auditionTone, get().captureOverride);
       const planDetail = rig && validation?.valid ? `${rig.name} Test Rig` : "basic demo · Test Rig unavailable";
-      get().addDiagnostic({ level: "info", source: "TonePilot", message: `Auditioning ${tone.title}`, detail: `${type} · ${planDetail} · device temporary demo route` });
-      await deviceApi.startToneDemo(tone, model);
+      get().addDiagnostic({ level: "info", source: "TonePilot", message: `Auditioning ${auditionTone.title}`, detail: `${type} · ${planDetail} · device temporary demo route` });
+      await deviceApi.startToneDemo(auditionTone, auditionModel);
       demoStarted = true;
 
       let testRigApplied = false;
       let testRigMessage = rig && validation?.valid ? "The profile is active, but the Test Rig FX could not be applied." : "Profile-only audition; the selected Test Rig is unavailable or invalid.";
+      let captureFile: TestRigCaptureFile | undefined;
       if (deviceApi.isNative() && rig && validation?.valid) {
         const reflectedSubtree = get().liveSubtree ?? stateBeforeAudition.liveSubtree;
         const cachedModules = reflectedSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
@@ -1944,7 +2300,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         const { plan, currentModuleTypeIds } = await waitForTestRigPlan({
           rig,
           captureType: type,
-          tone,
+          tone: auditionTone,
           moduleTypes: moduleTypes.map(String),
           previousModuleTypeIds: snapshotModuleTypeIds(stateBeforeAudition.liveSnapshot?.rig),
         });
@@ -1952,31 +2308,44 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         testRigMessage = plan.message;
 
         if (plan.applied) {
-          const loadedFile = await applyAndVerifyTestRig(plan, currentModuleTypeIds, reflectedSubtree);
-          if (loadedFile) testRigMessage = `${plan.message} Loaded ${loadedFile.split(/[\\/]/).at(-1)} in the ${plan.assignments.find((assignment) => assignment.capture)?.moduleName} host.`;
+          captureFile = await applyAndVerifyTestRig(plan, currentModuleTypeIds, reflectedSubtree) ?? undefined;
+          if (captureFile) testRigMessage = `${plan.message} Loaded ${captureFile.value.split(/[\\/]/).at(-1)} in the ${plan.assignments.find((assignment) => assignment.capture)?.moduleName} host.`;
         } else if (!plan.complete) {
           throw new Error(plan.message);
         }
         get().addDiagnostic({ level: plan.applied ? "success" : "warning", source: "TonePilot", message: plan.applied ? `${rig.name} FX loaded on Flex Prime` : "Profile loaded without Test Rig FX", detail: plan.message });
       }
-      set({ auditioningToneId: tone.id, auditionBusy: false, auditionError: null, testRigReturn: { ...testRigReturn, auditionSource: tone.source, testRigApplied, testRigMessage } });
+      set({
+        auditioningToneId: auditionTone.id,
+        auditionBusy: false,
+        auditionError: null,
+        testRigReturn: {
+          ...testRigReturn,
+          auditionSource: auditionTone.source,
+          testRigApplied,
+          testRigMessage,
+          audition: { tone: auditionTone, model: auditionModel, captureFile },
+        },
+      });
       if (testRigApplied && deviceApi.isNative() && get().device) void get().refreshPage("tone-cloud", "manual");
     } catch (error) {
       const message = errorMessage(error);
       let recovered = !demoStarted;
       if (demoStarted) {
-        try { await deviceApi.stopToneDemo(tone.source); recovered = true; }
+        try { await deviceApi.stopToneDemo(auditionTone.source); recovered = true; }
         catch (recoveryError) { get().addDiagnostic({ level: "error", source: "TonePilot", message: "Automatic audition rollback failed", detail: errorMessage(recoveryError) }); }
       }
-      set({ auditionBusy: false, auditioningToneId: null, auditionError: message, testRigReturn: recovered ? stateAfterStop.testRigReturn : recoveryTarget ? { ...recoveryTarget, auditionSource: tone.source } : null });
-      get().addDiagnostic({ level: "error", source: "TonePilot", message: `Could not audition ${tone.title}`, detail: message });
+      set({ auditionBusy: false, auditioningToneId: null, auditionError: message, testRigReturn: recovered ? stateAfterStop.testRigReturn : recoveryTarget ? { ...recoveryTarget, auditionSource: auditionTone.source } : null });
+      get().addDiagnostic({ level: "error", source: "TonePilot", message: `Could not audition ${auditionTone.title}`, detail: message });
       throw error;
     }
   },
   stopAudition: async () => {
     const state = get();
     const tone = state.tones.find((item) => item.id === state.auditioningToneId);
-    const source = tone?.source ?? state.testRigReturn?.auditionSource;
+    const source = state.testRigReturn?.audition?.tone.id === state.auditioningToneId
+      ? state.testRigReturn.audition.tone.source
+      : tone?.source ?? state.testRigReturn?.auditionSource;
     if (!state.auditioningToneId || !source) { set({ auditioningToneId: null, auditionBusy: false }); return; }
     set({ auditionBusy: true, auditionError: null });
     try {
@@ -1985,6 +2354,173 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     } catch (error) {
       const message = errorMessage(error);
       set({ auditionBusy: false, auditionError: message });
+      throw error;
+    }
+  },
+  saveAuditionRig: async (options) => {
+    const state = get();
+    if (!deviceApi.isNative() || !state.device) throw new Error("Connect a HeadRush device before saving this audition.");
+    if (!state.auditioningToneId) throw new Error("Start an audition before saving its Test Rig.");
+    const activeAudition = state.testRigReturn?.audition;
+    if (!activeAudition || activeAudition.tone.id !== state.auditioningToneId) {
+      throw new Error("RushLink cannot prove which provider item and file created this audition. Restart the audition before saving.");
+    }
+
+    const name = sanitizeHeadRushRigName(options.name);
+    if (!name) throw new Error("Enter a rig name.");
+    const setlist = options.setlistId ? state.setlists.find((item) => item.id === options.setlistId) : undefined;
+    if (options.setlistId && !setlist) throw new Error("The selected setlist is no longer available on the device.");
+
+    if (!Number.isInteger(options.color) || options.color < 1 || options.color > 9) throw new Error("Choose a valid HeadRush rig colour.");
+    if (options.tempoMode !== "current" && options.tempoMode !== "fixed") throw new Error("Choose a valid rig tempo source.");
+    if (!Number.isFinite(options.tempoBpm) || options.tempoBpm < 30 || options.tempoBpm > 240) throw new Error("Rig tempo must be between 30 and 240 BPM.");
+    if (!Number.isInteger(options.programChange) || options.programChange < -1 || options.programChange > 127) throw new Error("MIDI Program Change must be Off or a value from 1 to 128.");
+    const color = options.color;
+    const tempoBpm = options.tempoBpm;
+    const programChange = options.programChange;
+    set({ auditionBusy: true });
+
+    let originalRigOptions: Record<string, unknown> | null = null;
+    let originalPatchRig: Record<string, unknown> | null = null;
+    let metadataChanged = false;
+    let rigSaved = false;
+
+    try {
+      const rigsBefore = await deviceApi.properties("/Evil/API/Rigs");
+      originalRigOptions = rigsBefore;
+      const storedNames = Array.isArray(rigsBefore.AllRigNames) ? rigsBefore.AllRigNames.map(String) : state.rigs.map((rig) => rig.name);
+      const existingName = storedNames.find((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
+      if (existingName && !options.overwrite) throw new AuditionRigNameConflictError(existingName);
+      if (!existingName && !(await deviceApi.canSaveNewRig())) throw new Error("The HeadRush rig library cannot accept another rig. Remove an unused rig or choose an existing name to replace.");
+
+      const rawAvailablePrograms = rigsBefore.availableProgMIDICC;
+      const programChangeSupported = Array.isArray(rawAvailablePrograms);
+      const availablePrograms = Array.isArray(rawAvailablePrograms)
+        ? rawAvailablePrograms.filter((value: unknown): value is number => typeof value === "number" && Number.isInteger(value))
+        : [];
+      if (programChange >= 0 && !programChangeSupported) {
+        throw new Error("This HeadRush did not expose MIDI Program assignment for saved rigs. Choose Off to continue.");
+      }
+      if (programChange >= 0 && !availablePrograms.includes(programChange) && programChange !== Number(rigsBefore.loadedProgMIDICC)) {
+        throw new Error(`MIDI Program ${programChange + 1} is already assigned to another rig.`);
+      }
+
+      await flushActiveTestRigSync(get);
+      const syncedState = get();
+      const syncedAudition = syncedState.testRigReturn?.audition;
+      if (!syncedAudition || syncedAudition.tone.id !== syncedState.auditioningToneId || syncedAudition.tone.id !== activeAudition.tone.id) {
+        throw new Error("The active audition changed while its Test Rig was being prepared. Nothing was saved; try again on the current tone.");
+      }
+
+      const durableCapture = await ensureDurableAuditionSource(syncedAudition, name);
+      if (get().auditioningToneId !== syncedAudition.tone.id) {
+        throw new Error("The active audition changed while its source was being prepared. Nothing was saved; try again on the current tone.");
+      }
+      if (durableCapture) {
+        set((latest) => ({
+          testRigReturn: latest.testRigReturn?.audition?.tone.id === syncedAudition.tone.id
+            ? {
+              ...latest.testRigReturn,
+              audition: { ...latest.testRigReturn.audition, captureFile: durableCapture },
+            }
+            : latest.testRigReturn,
+        }));
+      }
+
+      originalPatchRig = await deviceApi.properties("/Evil/Engine/Patch/Rig");
+      const rigOptionsResponse = await deviceApi.setProperties("/Evil/API/Rigs", {
+        loadedColor: color,
+        ...(programChangeSupported ? { loadedProgMIDICC: programChange } : {}),
+      });
+      assertDeviceMutation(rigOptionsResponse.status, "Updating rig library options");
+      metadataChanged = true;
+      const tempoResponse = await deviceApi.setProperties("/Evil/Engine/Patch/Rig", {
+        TempoFromMaster: options.tempoMode === "current",
+        ...(options.tempoMode === "fixed" ? { Tempo: (tempoBpm - 30) / 210 } : {}),
+      });
+      assertDeviceMutation(tempoResponse.status, "Updating rig tempo");
+      await deviceApi.saveRigAs(name);
+      rigSaved = true;
+
+      let savedRigId = "";
+      let rigIdentityError: unknown;
+      for (const delay of [0, 80, 160, 280]) {
+        await auditionDelay(delay);
+        try {
+          const rigsAfter = await deviceApi.properties("/Evil/API/Rigs");
+          const loadedName = typeof rigsAfter.loadedName === "string" ? rigsAfter.loadedName.trim() : "";
+          const loadedId = typeof rigsAfter.loadedID === "string" ? rigsAfter.loadedID.trim() : "";
+          if (loadedId && loadedName.toLocaleLowerCase() === name.toLocaleLowerCase()) savedRigId = loadedId;
+          const names = Array.isArray(rigsAfter.AllRigNames) ? rigsAfter.AllRigNames.map(String) : [];
+          const ids = Array.isArray(rigsAfter.AllRigIds) ? rigsAfter.AllRigIds.map(String) : [];
+          const savedIndex = names.findIndex((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
+          if (!savedRigId && savedIndex >= 0) savedRigId = ids[savedIndex] ?? "";
+          if (savedRigId) break;
+        } catch (error) {
+          rigIdentityError = error;
+        }
+      }
+      if (!savedRigId && rigIdentityError) get().addDiagnostic({ level: "warning", source: "TonePilot", message: `${name} was saved, but its new device ID could not be read`, detail: deviceErrorDetail(rigIdentityError) });
+
+      let warning: string | undefined;
+      let savedSetlistName: string | undefined;
+      if (setlist) {
+        if (!savedRigId) {
+          warning = `“${name}” was saved to Rigs, but RushLink could not identify it for ${setlist.name}.`;
+        } else {
+          try {
+            const detail = await deviceApi.getSetlist(setlist.id);
+            const payload = appendRigToHeadRushSetlist(detail, setlist.id, setlist.name, savedRigId, name);
+            await deviceApi.saveSetlistDocument(payload);
+            savedSetlistName = payload.name;
+          } catch (error) {
+            warning = `“${name}” was saved to Rigs, but it could not be added to ${setlist.name}.`;
+            get().addDiagnostic({ level: "warning", source: "TonePilot", message: warning, detail: deviceErrorDetail(error) });
+          }
+        }
+      }
+
+      try {
+        await get().refreshFull("manual");
+      } catch (refreshError) {
+        const refreshWarning = `“${name}” was saved, but RushLink could not refresh the device library. The next successful device sync will show it.`;
+        warning = warning ? `${warning} ${refreshWarning}` : refreshWarning;
+        get().addDiagnostic({ level: "warning", source: "TonePilot", message: refreshWarning, detail: deviceErrorDetail(refreshError) });
+      }
+      set({ auditionBusy: false });
+      get().addDiagnostic({
+        level: warning ? "warning" : "success",
+        source: "TonePilot",
+        message: `Saved ${name} to Rigs`,
+        detail: warning ?? (savedSetlistName ? `Also added to ${savedSetlistName}.` : "The active audition remains available for comparison."),
+      });
+      return { rigId: savedRigId, name, setlistName: savedSetlistName, warning };
+    } catch (error) {
+      if (metadataChanged && !rigSaved && originalRigOptions && originalPatchRig) {
+        try {
+          const rigRollback: Record<string, unknown> = {};
+          if (typeof originalRigOptions.loadedColor === "number") rigRollback.loadedColor = originalRigOptions.loadedColor;
+          if (Array.isArray(originalRigOptions.availableProgMIDICC) && typeof originalRigOptions.loadedProgMIDICC === "number") {
+            rigRollback.loadedProgMIDICC = originalRigOptions.loadedProgMIDICC;
+          }
+          if (Object.keys(rigRollback).length) {
+            const response = await deviceApi.setProperties("/Evil/API/Rigs", rigRollback);
+            assertDeviceMutation(response.status, "Restoring rig library options");
+          }
+
+          const tempoRollback: Record<string, unknown> = {};
+          if (typeof originalPatchRig.TempoFromMaster === "boolean") tempoRollback.TempoFromMaster = originalPatchRig.TempoFromMaster;
+          if (typeof originalPatchRig.Tempo === "number") tempoRollback.Tempo = originalPatchRig.Tempo;
+          if (Object.keys(tempoRollback).length) {
+            const response = await deviceApi.setProperties("/Evil/Engine/Patch/Rig", tempoRollback);
+            assertDeviceMutation(response.status, "Restoring rig tempo");
+          }
+        } catch (rollbackError) {
+          get().addDiagnostic({ level: "error", source: "TonePilot", message: "Could not restore rig metadata after the failed save", detail: deviceErrorDetail(rollbackError) });
+        }
+      }
+      set({ auditionBusy: false });
+      get().addDiagnostic({ level: "error", source: "TonePilot", message: "Could not save the auditioned rig", detail: deviceErrorDetail(error) });
       throw error;
     }
   },
@@ -2043,7 +2579,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const snapshots = mergeSnapshots(state.snapshots, archive.snapshots);
       if (!restoreWorkspace) return { snapshots };
       const workspace = archive.workspace;
-      const testRigs = migratePersistedTestRigIrFiles(migrateSeededTestRigSounds(workspace.testRigs?.length ? workspace.testRigs : state.testRigs));
+      const testRigs = repairPersistedTestRigs(migrateSeededTestRigSounds(workspace.testRigs?.length ? workspace.testRigs : state.testRigs));
       const testRigSets = workspace.testRigSets?.length ? workspace.testRigSets.filter((setlist) => setlist.rigIds.every((rigId) => testRigs.some((rig) => rig.id === rigId))) : state.testRigSets;
       const selectedTestRigSetId = testRigSets.some((setlist) => setlist.id === workspace.selectedTestRigSetId) ? workspace.selectedTestRigSetId! : testRigSets[0]?.id ?? state.selectedTestRigSetId;
       const liveStages = workspace.liveStages?.length ? workspace.liveStages : state.liveStages;

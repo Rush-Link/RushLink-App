@@ -9,7 +9,7 @@ const tauri = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke, isTauri: tauri.isTauri }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 
-import { DEFAULT_TONE3000_FILTERS, deviceApi, normalizeDeviceFilePath } from "./device-api";
+import { DEFAULT_TONE3000_FILTERS, deviceApi, normalizeDeviceFilePath, tone3000ModelFilename } from "./device-api";
 import { DeviceError } from "./device-errors";
 import type { LiveButton } from "../domain/types";
 
@@ -113,17 +113,87 @@ describe("deviceApi browser adapter", () => {
   it("delegates device helper operations using confirmed endpoints", async () => {
     const set = vi.spyOn(deviceApi, "setProperties").mockResolvedValue({ status: 200, body: {} });
     const props = vi.spyOn(deviceApi, "properties").mockResolvedValue({ Note: "A" });
-    const call = vi.spyOn(deviceApi, "callMethod").mockResolvedValue({ status: 200, body: {} });
+    const call = vi.spyOn(deviceApi, "callMethod").mockImplementation(async (_path, method, args = []) => {
+      if (method === "canSaveNewRig" || method === "saveRigAs") {
+        return { status: 200, body: { methodReturnValue: true } };
+      }
+      if (method === "saveSetlist") {
+        const payload = JSON.parse(String(args[0])) as { id: string };
+        return { status: 200, body: { methodReturnValue: payload.id } };
+      }
+      return { status: 200, body: {} };
+    });
     await deviceApi.setDeviceTuner(true);
     await expect(deviceApi.tunerValues()).resolves.toEqual({ Note: "A" });
     await deviceApi.loadBlockPreset("Amp", "Lead");
     await deviceApi.createBlockPreset("Amp", 7, "Lead", true);
     await deviceApi.renameBlockPreset("Amp", "Lead", "Solo");
     await deviceApi.deleteBlockPreset("Amp", "Solo");
+    await expect(deviceApi.canSaveNewRig()).resolves.toBe(true);
+    await deviceApi.saveRigAs("  New Rig  ");
     await deviceApi.saveSetlist("s1", "Show", ["r1", "r2"]);
+    await deviceApi.saveSetlist("", "New Setlist", []);
     expect(set).toHaveBeenCalledWith("/Evil/Engine/AudioCtrl/Input", { TunerOn: true });
     expect(props).toHaveBeenCalledWith("/Evil/Engine/FFTCtrl");
-    expect(call).toHaveBeenCalledWith("/Evil/API/Setlists", "saveSetlist", [JSON.stringify({ id: "s1", name: "Show", data: [{ id: "r1", order: 0 }, { id: "r2", order: 1 }] }), "s1"]);
+    expect(call).toHaveBeenCalledWith("/Evil/API/Rigs", "canSaveNewRig", [true]);
+    expect(call).toHaveBeenCalledWith("/Evil/API/Rigs", "saveRigAs", ["New Rig", -1]);
+    expect(call).toHaveBeenCalledWith("/Evil/API/Setlists", "saveSetlist", [JSON.stringify({ id: "s1", name: "Show", data: [{ id: "r1", order: 0 }, { id: "r2", order: 1 }] }), ""]);
+    const newSetlistCall = call.mock.calls.find(([, method, args]) => method === "saveSetlist" && args?.[1] === "New Setlist");
+    expect(newSetlistCall).toBeDefined();
+    const newSetlistPayload = JSON.parse(String(newSetlistCall?.[2]?.[0])) as { id: string; name: string; data: unknown[] };
+    expect(newSetlistPayload).toMatchObject({ name: "", data: [] });
+    expect(newSetlistPayload.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+  });
+
+  it("preserves raw setlist documents and validates reflected save results", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    const songView = {
+      id: "setlist-1",
+      name: "Show",
+      viewType: "song",
+      data: [{ song_id: "song-1", order: 0, rigs: [{ id: "rig-1", order: 0 }] }],
+    };
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: "setlist-2" } });
+    await expect(deviceApi.saveSetlistDocument(songView, "Show Copy")).resolves.toBe("setlist-2");
+    expect(call).toHaveBeenLastCalledWith("/Evil/API/Setlists", "saveSetlist", [JSON.stringify(songView), "Show Copy"]);
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: false } });
+    await expect(deviceApi.canSaveNewRig()).resolves.toBe(false);
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: false } });
+    await expect(deviceApi.saveRigAs("Rejected Rig")).rejects.toThrow("rejected by the device");
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: false } });
+    await expect(deviceApi.saveSetlistDocument(songView)).rejects.toThrow("rejected by the device");
+    await expect(deviceApi.saveRigAs("   ")).rejects.toThrow("Enter a rig name");
+    await expect(deviceApi.saveSetlist("", "   ", [])).rejects.toThrow("Enter a setlist name");
+  });
+
+  it("rejects malformed persistence returns instead of treating an HTTP 200 as success", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    const malformed = { status: 200, body: {} };
+
+    call.mockResolvedValueOnce(malformed);
+    await expect(deviceApi.canSaveNewRig()).rejects.toMatchObject({
+      code: "invalid-response",
+      action: "Checking whether a new rig can be saved",
+      technicalMessage: "Expected a boolean result; received object",
+    });
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: "accepted" } });
+    await expect(deviceApi.saveRigAs("New rig")).rejects.toMatchObject({
+      code: "invalid-response",
+      action: "Saving rig to HeadRush",
+      technicalMessage: "Expected a boolean success result; received string",
+    });
+
+    for (const methodReturnValue of ["", "   ", true, null]) {
+      call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue } });
+      await expect(deviceApi.saveSetlistDocument({ id: "setlist-1", name: "Show", data: [] })).rejects.toMatchObject({
+        code: "invalid-response",
+        action: "Saving setlist to HeadRush",
+        technicalMessage: expect.stringContaining("Expected a non-empty setlist ID"),
+      });
+    }
   });
 
   it("writes tuner mute, checks HTTP status and confirms the device state", async () => {
@@ -158,14 +228,71 @@ describe("deviceApi browser adapter", () => {
   });
 
   it("selects the right tone download command and validates Tone3000 models", async () => {
-    const call = vi.spyOn(deviceApi, "callMethod").mockResolvedValue({ status: 200, body: {} });
+    const call = vi.spyOn(deviceApi, "callMethod").mockImplementation(async (_path, method) => ({
+      status: 200,
+      body: {
+        methodReturnValue: method === "downloadModelToDevice"
+          ? JSON.stringify({ success: true })
+          : true,
+      },
+    }));
     await expect(deviceApi.downloadTone({ source: "Tone3000", remoteId: 1 })).rejects.toThrow("Choose a compatible");
     await deviceApi.downloadTone({ source: "Tone3000" }, { remoteId: 9, name: "A2", url: "https://tone/model" });
     await deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "rig" });
     await deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "clone", remoteKind: "clone" });
-    expect(call).toHaveBeenCalledWith("/Evil/API/Tone3000", "downloadModelToDevice", [9, "A2", "https://tone/model"]);
+    expect(call).toHaveBeenCalledWith("/Evil/API/Tone3000", "downloadModelToDevice", [9, "https://tone/model", "model.nam"]);
     expect(call).toHaveBeenCalledWith("/Evil/Cloud/Master", "downloadRig", ["rig", ""]);
     expect(call).toHaveBeenCalledWith("/Evil/Cloud/Master", "downloadClone", ["clone", ""]);
+    expect(tone3000ModelFilename({ remoteId: 9, name: "A2", url: "relative", metadata: { file_name: "Fortin/Nameless.nam" } })).toBe("FortinNameless.nam");
+    expect(tone3000ModelFilename({ remoteId: 12, name: "Clean capture", url: "relative" })).toBe("Clean capture.nam");
+  });
+
+  it("rejects semantic provider download failures instead of reporting a durable file", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    const model = { remoteId: 9, name: "Exact NAM", url: "https://tone3000/model.nam" };
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: JSON.stringify({ success: false, errorMessage: "write failed" }) } });
+    await expect(deviceApi.downloadTone({ source: "Tone3000", remoteId: 1 }, model)).rejects.toThrow("write failed");
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: false } });
+    await expect(deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "clone", remoteKind: "clone" }, undefined, "Saved clone")).rejects.toThrow(/rejected by the device/i);
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: { success: false, message: "cloud storage full" } } });
+    await expect(deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "rig", remoteKind: "rig" }, undefined, "Saved rig")).rejects.toMatchObject({
+      code: "invalid-response",
+      action: "HeadRush Cloud rig download",
+      technicalMessage: "Expected a boolean success result; received object",
+    });
+
+    await expect(deviceApi.downloadTone({ source: "HeadRush Cloud", remoteKind: "clone" }, undefined, "No id")).rejects.toThrow(/no usable device identifier/i);
+    expect(call).toHaveBeenCalledTimes(3);
+  });
+
+  it("requires explicit provider success envelopes for durable downloads", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    const tone3000 = { source: "Tone3000", remoteId: 1 };
+    const model = { remoteId: 9, name: "Exact NAM", url: "https://tone3000/model.nam" };
+
+    for (const methodReturnValue of [undefined, {}, { success: "true" }, { success: null }]) {
+      call.mockResolvedValueOnce({ status: 200, body: methodReturnValue === undefined ? {} : { methodReturnValue } });
+      await expect(deviceApi.downloadTone(tone3000, model)).rejects.toMatchObject({
+        code: "invalid-response",
+        action: "Tone3000 model download",
+        technicalMessage: "Expected a confirmed Tone3000 success response; received object",
+      });
+    }
+
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: "true" } });
+    await expect(deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "json-true", remoteKind: "rig" })).resolves.toBeUndefined();
+
+    for (const methodReturnValue of [undefined, {}, "accepted", 1, null]) {
+      call.mockResolvedValueOnce({ status: 200, body: methodReturnValue === undefined ? {} : { methodReturnValue } });
+      await expect(deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "cloud-rig", remoteKind: "rig" })).rejects.toMatchObject({
+        code: "invalid-response",
+        action: "HeadRush Cloud rig download",
+        technicalMessage: expect.stringContaining("Expected a boolean success result"),
+      });
+    }
   });
 
   it("validates semantic Tone3000 demo failures and confirmed provider routes", async () => {

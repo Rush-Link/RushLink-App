@@ -1,0 +1,193 @@
+/* Shared reflected-parameter controls. Imported by their rendering component. */
+.parameter-selection {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #2b394a;
+  border-radius: 9px;
+  background: #090f17;
+}
+
+.parameter-selection__label {
+  color: #c6d4df;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.parameter-selection > select.ui-select {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 44px;
+  padding: 9px 32px 9px 11px;
+  border: 1px solid #3a4b60;
+  border-radius: 7px;
+  background-color: #111c29;
+  color: #edf4fa;
+  color-scheme: dark;
+  font-size: 14px;
+  line-height: 1.4;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.parameter-selection > select.ui-select:hover:not(:disabled) { border-color: #618399; }
+.parameter-selection > select.ui-select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+.parameter-selection > select.ui-select:disabled { opacity: .55; cursor: not-allowed; }
+.parameter-selection option { background: #111c29; color: #edf4fa; }
+
+.parameter-text { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; min-width: 0; }
+.parameter-text > span { overflow-wrap: anywhere; }
+.parameter-text > input.ui-input { width: 100%; min-width: 0; max-width: 100%; }
+.parameter-row > div { min-width: 0; overflow-wrap: anywhere; }
+.parameter-row > .switch { flex-shrink: 0; }
+
+.value-knob__range {
+  grid-column: 1 / -1;
+  grid-row: 4;
+  width: 100%;
+  margin: 8px 0 0;
+  accent-color: var(--cyan);
+}
+
+.parameter-choice {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  gap: 9px;
+  height: 100%;
+  min-height: 70px;
+  padding: 9px 10px;
+}
+
+.parameter-choice__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.parameter-choice__heading strong {
+  overflow: hidden;
+  color: #dbe6ec;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.parameter-choice__heading span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--drum-group-accent, var(--cyan));
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.parameter-choice__tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(64px, 1fr));
+  gap: 4px;
+}
+
+.parameter-choice__tiles button {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  min-height: 29px;
+  padding: 4px 6px;
+  border: 1px solid #334253;
+  border-radius: 6px;
+  background: #0a121a;
+  color: #9eb0be;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: .13s ease;
+}
+
+.parameter-choice__tiles button:hover {
+  border-color: color-mix(in srgb, var(--drum-group-accent, var(--cyan)) 55%, #3b4b5e);
+  color: #e5eef3;
+  transform: translateY(-1px);
+}
+
+.parameter-choice__tiles button.active {
+  border-color: var(--drum-group-accent, var(--cyan));
+  background: color-mix(in srgb, var(--drum-group-accent, var(--cyan)) 16%, #0b141d);
+  color: #f1fbfc;
+  box-shadow: inset 0 -2px var(--drum-group-accent, var(--cyan));
+}
+
+.parameter-choice__tiles button:focus-visible,
+.parameter-choice__stepper button:focus-visible {
+  outline: 2px solid var(--drum-group-accent, var(--cyan));
+  outline-offset: 2px;
+}
+
+.parameter-choice__stepper {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 34px;
+  align-items: stretch;
+  gap: 5px;
+}
+
+.parameter-choice__stepper > button {
+  display: grid;
+  place-items: center;
+  min-height: 38px;
+  border: 1px solid #354658;
+  border-radius: 7px;
+  background: #0b141d;
+  color: var(--drum-group-accent, var(--cyan));
+  cursor: pointer;
+  transition: .13s ease;
+}
+
+.parameter-choice__stepper > button:hover {
+  border-color: var(--drum-group-accent, var(--cyan));
+  background: color-mix(in srgb, var(--drum-group-accent, var(--cyan)) 10%, #0b141d);
+  transform: translateY(-1px);
+}
+
+.parameter-choice__stepper > button:active {
+  transform: scale(.94);
+}
+
+.parameter-choice__stepper output {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  min-width: 0;
+  padding: 3px 7px;
+  border: 1px solid #2d3c4c;
+  border-radius: 7px;
+  background: #080f16;
+  text-align: center;
+}
+
+.parameter-choice__stepper output strong {
+  overflow: hidden;
+  max-width: 100%;
+  color: #e5edf2;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.parameter-choice__stepper output small {
+  color: #708698;
+  font-size: 11px;
+}
+
+@media (max-width: 500px) {
+  .parameter-choice__tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

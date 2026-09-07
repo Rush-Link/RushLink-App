@@ -1,21 +1,21 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import type { HeadRushSubtree, Parameter } from "./types";
+import type { Parameter } from "./types";
+import { createHeadRushReflectionFixture } from "../test/fixtures/headrush-reflection";
 import { colorForIndex, denormalizeValue, normalizeValue, parameterDeviceValue, parametersForObject, parseHeadRushSubtree } from "./headrush-reflection";
 
-const capturedTree = JSON.parse(readFileSync(resolve(process.cwd(), "reference/headrush/live/latest-subtree.json"), "utf8")) as HeadRushSubtree;
+const reflectedTree = createHeadRushReflectionFixture();
 
 describe("HeadRush reflection adapter", () => {
-  it("maps the current Flex Prime state and all fourteen slots", () => {
-    const snapshot = parseHeadRushSubtree(capturedTree);
-    expect(snapshot.rig.name).toBe("ROCK");
+  it("maps synthetic reflected state and all fourteen slots", () => {
+    const snapshot = parseHeadRushSubtree(reflectedTree);
+    expect(snapshot.rig.name).toBe("Fixture Rhythm");
     expect(snapshot.rig.blocks).toHaveLength(14);
-    expect(snapshot.rig.blocks.slice(0, 4).map((block) => block.name)).toEqual(["Kaften Gate", "Black Wah", "Green JRC-OD", "ReValver Amp"]);
-    expect(snapshot.rig.blocks[4].empty).toBe(true);
+    expect(snapshot.rig.blocks.slice(0, 4).map((block) => block.name)).toEqual(["Meadow Gate", "Copper Wah", "Lantern Drive", "Harbour Amp"]);
+    expect(snapshot.rig.blocks.slice(4).every((block) => block.empty)).toBe(true);
+    expect(snapshot.rig.blocks[1]).toMatchObject({ enabled: false, sourcePath: "/Evil/Engine/Patch/Copper_Wah" });
     expect(snapshot.rig.blocks[0].parameters.map((parameter) => parameter.id)).toEqual(expect.arrayContaining(["SltEQOn", "SltEQF", "SltEQG", "SltEQQ", "SltEQHP", "SltEQLP"]));
     expect(snapshot.rig.tempo).toBeCloseTo(120, 0);
-    expect(snapshot.loadedSetlistName).toBe("Plays");
+    expect(snapshot.loadedSetlistName).toBe("Fixture Set");
     expect(snapshot.cloud.loggedIn).toBe(true);
     expect(snapshot.tone3000.loggedIn).toBe(true);
   });
@@ -34,7 +34,7 @@ describe("HeadRush reflection adapter", () => {
   });
 
   it("keeps reflected labels aligned when an editor requests a custom property group", () => {
-    const input = capturedTree["/Evil/Engine/Patch/Input"];
+    const input = reflectedTree["/Evil/Engine/Patch/Input"];
     const parameters = parametersForObject(input, ["RigInput", "InputGain", "GateRelease", "Lock"]);
     expect(parameters.map(({ id, label }) => ({ id, label }))).toEqual([
       { id: "RigInput", label: "Rig Input" },
@@ -48,14 +48,22 @@ describe("HeadRush reflection adapter", () => {
 
   it("round-trips every reflected numeric FX and global EQ control", () => {
     const failures: string[] = [];
-    for (const [path, object] of Object.entries(capturedTree)) {
+    const checkedParameters: string[] = [];
+    const normalizationAlgorithms = new Set<number>();
+    for (const [path, object] of Object.entries(reflectedTree)) {
       if (!path.startsWith("/Evil/Engine/Patch/") && !path.startsWith("/Evil/Engine/GlobalEQ")) continue;
-      for (const parameter of parametersForObject(object)) {
+      // Include slot EQ properties even when the main control order omits them.
+      for (const parameter of parametersForObject(object, Object.keys(object.meta?.properties ?? {}))) {
         if (typeof parameter.rawValue !== "number" || typeof parameter.value !== "number") continue;
+        checkedParameters.push(`${path}.${parameter.id}`);
+        if (parameter.normalized) normalizationAlgorithms.add(parameter.normalizeAlgo ?? 0);
         const encoded = parameterDeviceValue(parameter, parameter.value);
         if (typeof encoded !== "number" || !Number.isFinite(encoded) || Math.abs(encoded - parameter.rawValue) > 0.00001) failures.push(`${path}.${parameter.id}: ${parameter.rawValue} -> ${parameter.value} -> ${String(encoded)}`);
       }
     }
+    expect(checkedParameters.length).toBeGreaterThanOrEqual(20);
+    expect(checkedParameters.some((property) => property.startsWith("/Evil/Engine/GlobalEQ."))).toBe(true);
+    expect(normalizationAlgorithms).toEqual(new Set([0, 1, 2, 4, 5, 6, 7, 8, 9, 10]));
     expect(failures).toEqual([]);
   });
 
@@ -73,9 +81,9 @@ describe("HeadRush reflection adapter", () => {
   });
 
   it("uses reflected companion lists for dynamic drum kit and variation selectors", () => {
-    const parameters = parametersForObject(capturedTree["/Evil/Engine/DrumsCtrl"], ["Kit", "StyleVari"]);
-    expect(parameters[0]).toMatchObject({ id: "Kit", value: "Rock 1 (A)", choices: ["Rock 1 (A)"], choiceValues: ["Rock 1 (A)"] });
-    expect(parameters[1]).toMatchObject({ id: "StyleVari", value: "Connie", choices: ["Connie", "Cry", "Dust", "Mojo", "Shuffle", "Sign"] });
+    const parameters = parametersForObject(reflectedTree["/Evil/Engine/DrumsCtrl"], ["Kit", "StyleVari"]);
+    expect(parameters[0]).toMatchObject({ id: "Kit", value: "Fixture Kit A", choices: ["Fixture Kit A", "Fixture Kit B"], choiceValues: ["Fixture Kit A", "Fixture Kit B"] });
+    expect(parameters[1]).toMatchObject({ id: "StyleVari", value: "Verse", choices: ["Verse", "Chorus", "Fill"] });
   });
 
   it.each([

@@ -1,19 +1,24 @@
 import {
   Activity, AlertTriangle, Check, ChevronDown, Clock3, Cloud, Database, Download, Filter, Gauge, Heart,
-  Layers3, LoaderCircle, Play, Plus, RefreshCw, Search, ShieldCheck, SlidersHorizontal,
+  Layers3, LoaderCircle, Play, Plus, RefreshCw, Save, Search, ShieldCheck, SlidersHorizontal,
   Sparkles, Star, StopCircle, WandSparkles, X, Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CaptureType, CloudTone, ToneModel } from "../domain/types";
-import { adaptAuditionChain, toneProviderReadiness, validateTestRig } from "../domain/tone-analysis";
+import { adaptAuditionChain, CAPTURE_SLOT_NAME, toneProviderReadiness, validateTestRig } from "../domain/tone-analysis";
 import { filterAndSortTones, popularToneTags, tone3000GearsForCaptureTypes, type DownloadFilter, type ToneArchitectureFilter, type ToneSort } from "../domain/tone-catalogue";
-import { TONE_PAGE_SIZE, useAppStore } from "../stores/app-store";
+import { TONE_PAGE_SIZE, useAppStore, type AuditionRigSaveResult } from "../stores/app-store";
 import { Badge, Button, Card, IconButton, Input, Label, Select, Tabs } from "../components/ui";
 import { formatCompact, cn } from "../lib/utils";
 import { PageTitle } from "../components/system/page-title";
 import { deviceApi, type Tone3000SearchFilters } from "../services/device-api";
 import { deviceErrorDetail } from "../services/device-errors";
 import { TestRigEditorDialog, TonePilotTestRigStudio } from "./tonepilot-test-rigs";
+import { TonePilotSaveRigDialog } from "./tonepilot-save-rig-dialog";
+import { ParameterControl } from "../components/system/controls";
+import "../styles/live-tone.css";
+import "../styles/tonepilot-upgrades.css";
+import "../styles/tonepilot-lab.css";
 
 const typeLabel: Record<string, string> = { amp: "AMP", effect: "EFFECT", "amp+ir": "AMP + IR", ir: "IR", "full-rig": "FULL RIG", unknown: "UNKNOWN" };
 const captureTypes: Array<{ value: Exclude<CaptureType, "auto">; label: string }> = [
@@ -61,23 +66,41 @@ export function ToneLabPage() {
   const [calibratedOnly, setCalibratedOnly] = useState(false); const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [minimumDownloads, setMinimumDownloads] = useState(0); const [minimumFavorites, setMinimumFavorites] = useState(0); const [minimumModels, setMinimumModels] = useState(0); const [publishedWithinDays, setPublishedWithinDays] = useState(0); const [licenses, setLicenses] = useState<string[]>([]); const [artworkOnly, setArtworkOnly] = useState(false); const [downloadState, setDownloadState] = useState<DownloadFilter>("all"); const [favoritesOnly, setFavoritesOnly] = useState(false); const [sort, setSort] = useState<ToneSort>("best-match");
   const [customize, setCustomize] = useState(false); const [downloadBusy, setDownloadBusy] = useState(false);
+  const [saveRigOpen, setSaveRigOpen] = useState(false); const [transportBusy, setTransportBusy] = useState<"stop" | "refresh" | null>(null);
+  const [saveRigResult, setSaveRigResult] = useState<AuditionRigSaveResult | null>(null);
+  const auditionButtonRef = useRef<HTMLButtonElement>(null); const refreshButtonRef = useRef<HTMLButtonElement>(null); const previousAuditionActive = useRef(false);
 
   const providerFilters = useMemo<Tone3000SearchFilters>(() => ({ architecture: architecture === "a1" || architecture === "custom" ? 1 : 2, calibrated: calibratedOnly, gear: tone3000GearsForCaptureTypes(selectedTypes, gears), sizes: architecture === "a1" || architecture === "custom" ? sizes : [], format: formats[0] ?? "", tags: tag.split(",").map((item) => item.trim()).filter(Boolean), makes: make.split(",").map((item) => item.trim()).filter(Boolean), creators: author.split(",").map((item) => item.trim()).filter(Boolean), verified: verifiedOnly, sortMode: sort === "newest" ? 1 : sort === "oldest" ? 2 : sort === "downloads-all-time" ? 3 : 0 }), [architecture, calibratedOnly, selectedTypes, gears, sizes, formats, tag, make, author, verifiedOnly, sort]);
   const sourceTones = useMemo(() => store.tones.filter((tone) => tone.source === source), [store.tones, source]);
   const tones = useMemo(() => filterAndSortTones(sourceTones, { query, source, captureTypes: selectedTypes, author, tag, make, architecture, gears, sizes: architecture === "a1" || architecture === "custom" ? sizes : [], formats, calibratedOnly, verifiedOnly, minimumDownloads, minimumFavorites, minimumModels, publishedWithinDays, licenses, artworkOnly, downloadState, favoritesOnly, favoriteIds: store.favoriteToneIds, sort }), [sourceTones, store.favoriteToneIds, query, source, selectedTypes, author, tag, make, architecture, gears, sizes, formats, calibratedOnly, verifiedOnly, minimumDownloads, minimumFavorites, minimumModels, publishedWithinDays, licenses, artworkOnly, downloadState, favoritesOnly, sort]);
   const popularTags = useMemo(() => popularToneTags(sourceTones, 18), [sourceTones]); const selected = sourceTones.find((tone) => tone.id === store.selectedToneId) ?? null; const testRig = store.testRigs.find((rig) => rig.id === store.selectedTestRigId) ?? store.testRigs[0] ?? null;
   const rigValidation = testRig ? validateTestRig(testRig.blocks) : { valid: false, errors: ["No test-rig template is available."], warnings: [], captureSlot: null }; const captureSlot = rigValidation.captureSlot === null ? null : rigValidation.captureSlot + 1; const models = selected ? store.toneModels[selected.id] ?? [] : []; const selectedModel = models.find((model) => model.id === store.selectedToneModelId) ?? models[0]; const effectiveType = store.captureOverride === "auto" ? selected?.detectedType ?? "unknown" : store.captureOverride; const adaptedChain = testRig ? adaptAuditionChain(testRig.blocks, effectiveType) : []; const providerStatus = toneProviderReadiness({ native: deviceApi.isNative(), device: store.device, capabilities: store.capabilities, subtree: store.liveSubtree, source: selected?.source ?? source, remoteId: selected?.remoteId }); const modelReady = selected?.source !== "Tone3000" || Boolean(selectedModel); const auditionReady = Boolean(selected && providerStatus.ready && modelReady && !store.toneModelLoading);
+  const captureBlock = testRig?.blocks.find((block) => block.name === CAPTURE_SLOT_NAME);
+  const namOutput = captureBlock?.parameters.find((parameter) => (parameter.sourceProperty || parameter.id).toLocaleLowerCase() === "output" && typeof parameter.value === "number");
+  const showNamOutput = Boolean(selected?.source === "Tone3000" && effectiveType !== "ir" && captureBlock && namOutput);
+  const selectedToneIsActive = Boolean(selected && store.auditioningToneId === selected.id);
   const activeFilterCount = selectedTypes.length + Number(Boolean(author)) + Number(Boolean(tag)) + Number(minimumDownloads > 0) + Number(minimumFavorites > 0) + Number(minimumModels > 0) + Number(publishedWithinDays > 0) + Number(downloadState !== "all") + Number(favoritesOnly) + (source === "Tone3000" ? gears.length + sizes.length + formats.length + licenses.length + Number(architecture !== "a2") + Number(Boolean(make)) + Number(calibratedOnly) + Number(verifiedOnly) + Number(artworkOnly) : 0);
 
   const sourceKey = source === "Tone3000" ? "tone3000" : "headRushCloud";
   useEffect(() => { if (source === "Tone3000" && deviceApi.isNative() && store.device && !sourceTones.length && !store.toneLoading && store.toneUpdatedAtBySource.tone3000 === null) void useAppStore.getState().refreshToneServices(store.toneQuery, false, providerFilters, "Tone3000"); }, [store.device?.id, source, sourceTones.length, store.toneLoading, store.toneUpdatedAtBySource.tone3000, store.toneQuery]);
   useEffect(() => { if (store.selectedToneId && !sourceTones.some((tone) => tone.id === store.selectedToneId)) store.selectTone(null); }, [source, sourceTones, store.selectedToneId]);
   useEffect(() => { if (selected?.source === "Tone3000") void useAppStore.getState().loadToneModels(selected); }, [selected?.id]);
+  useEffect(() => setSaveRigResult(null), [selected?.id]);
+  useEffect(() => { if (!selectedToneIsActive) setSaveRigOpen(false); }, [selectedToneIsActive]);
+  useEffect(() => {
+    if (previousAuditionActive.current === selectedToneIsActive) return;
+    previousAuditionActive.current = selectedToneIsActive;
+    requestAnimationFrame(() => (selectedToneIsActive ? refreshButtonRef : auditionButtonRef).current?.focus());
+  }, [selectedToneIsActive]);
 
   const clearAdvanced = () => { setSelectedTypes([]); setAuthor(""); setTag(""); setMake(""); setArchitecture("a2"); setGears([]); setSizes([]); setFormats([]); setCalibratedOnly(false); setVerifiedOnly(false); setMinimumDownloads(0); setMinimumFavorites(0); setMinimumModels(0); setPublishedWithinDays(0); setLicenses([]); setArtworkOnly(false); setDownloadState("all"); setFavoritesOnly(false); setSort("best-match"); };
   const providerSearch = (force = false) => void store.refreshToneServices(query, force, providerFilters, source); const sourceCount = (name: CloudTone["source"]) => store.tones.filter((tone) => tone.source === name).length; const sourceProgress = (name: CloudTone["source"]) => { const loaded = sourceCount(name); const total = name === "Tone3000" ? store.toneTotals.tone3000 : store.toneTotals.headRushCloud; return total === null ? `${loaded} cached records` : `${loaded} of ${total.toLocaleString()}`; }; const updatedAt = store.toneUpdatedAtBySource[sourceKey]; const lastUpdated = updatedAt ? new Date(updatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "Not synced";
   const selectProvider = (next: CloudTone["source"]) => { if (next === source) return; setSource(next); void store.refreshToneServices(query, false, providerFilters, next); };
   const toggleCaptureType = (type: Exclude<CaptureType, "auto">) => { const next = toggleValue(selectedTypes, type) as Array<Exclude<CaptureType, "auto">>; setSelectedTypes(next); if (source === "Tone3000") void store.refreshToneServices(query, false, { ...providerFilters, gear: tone3000GearsForCaptureTypes(next, gears) }, source); };
+  const runTransport = (action: "stop" | "refresh", task: () => Promise<void>) => {
+    setTransportBusy(action);
+    void task().catch(() => undefined).finally(() => setTransportBusy(null));
+  };
 
   return <div className="page tone-page"><PageTitle eyebrow="LIVE CLOUD DISCOVERY" title="TonePilot" description="Independent provider catalogues, precise filters, repeatable test rigs, and safe temporary auditioning." actions={<><Badge tone={store.toneFromCache ? "violet" : "cyan"}><Database size={11}/> {store.toneFromCache ? "CACHE" : source.toUpperCase()}</Badge>{workspace === "catalogue" && <Button loading={store.toneLoading} onClick={() => providerSearch(true)}><RefreshCw size={15}/> Refresh {source}</Button>}</>}/>
     <Tabs value={workspace} onValueChange={setWorkspace} items={[{ value: "catalogue", label: "Tone catalogue", count: store.tones.length }, { value: "test-rigs", label: "Test Rig Studio" }]} className="tp-workspace-tabs"/>
@@ -101,16 +124,30 @@ export function ToneLabPage() {
       {selected.source === "Tone3000" && <div className="tone-model-picker"><div className="tone-model-picker__head"><span><strong>Exact Tone3000 model</strong><small>{store.toneModelLoading ? "Loading A2 and legacy A1 models…" : `${models.length} compatible model${models.length === 1 ? "" : "s"} cached`}</small></span><IconButton disabled={store.toneModelLoading} label="Refresh compatible models" onClick={() => void store.loadToneModels(selected, true)}><RefreshCw size={14}/></IconButton></div>{store.toneModelError && <p className="tone-model-error">{store.toneModelError}</p>}{store.toneModelLoading && !models.length ? <div className="tone-model-loading"><LoaderCircle className="spin"/> Fetching model variants…</div> : <div className="tone-model-options">{models.map((model) => <ModelChoice key={model.id} model={model} selected={model.id === selectedModel?.id} onSelect={() => store.selectToneModel(model.id)}/>)}</div>}{selectedModel && <details className="tone-metadata tone-model-metadata"><summary>Selected model details <ChevronDown size={13}/></summary>{selectedModel.description && <p>{selectedModel.description}</p>}<MetadataList metadata={selectedModel.metadata} limit={18}/></details>}</div>}
       {testRig ? <><div className="test-rig-heading"><div><span>TEMPORARY TEST RIG</span><strong>{testRig.name}</strong><small>{captureSlot ? `Capture anchor · plan slot ${captureSlot}` : "Capture position needs attention"}</small></div><button onClick={() => setCustomize(true)}>Edit Test Rig <SlidersHorizontal size={14}/></button></div><div className="template-tabs">{store.testRigs.map((rig) => <button key={rig.id} className={cn(rig.id === testRig.id && "active")} onClick={() => store.selectTestRig(rig.id)}>{rig.name}</button>)}</div><div className="audition-chain">{adaptedChain.map((block) => { const isCapture = block.name === "Capture slot"; return <div key={block.id} data-context-kind="test-rig-block" data-block-id={block.id} data-slot={block.slot} data-locked={isCapture ? "true" : "false"} className={cn("audition-block", !block.effectiveEnabled && "bypassed", isCapture && "capture")} style={{ "--block-color": isCapture ? selected.imageColor : block.color } as React.CSSProperties}><span className="audition-block__line"/><button onClick={() => !isCapture && store.toggleTestRigBlock(block.id)}><Zap size={15}/><div><strong>{isCapture ? selectedModel?.name ?? selected.title : block.name}</strong><small>{isCapture ? typeLabel[effectiveType] : block.model}</small></div><span>{block.effectiveEnabled ? "ON" : "OFF"}</span></button>{block.autoBypassed && <small className="auto-bypass">AUTO BYPASS</small>}</div>; })}</div></> : <div className="tp-audition-alert"><AlertTriangle size={18}/><span><strong>No Test Rig</strong><small>Open Test Rig Studio to restore a valid template.</small></span></div>}
       <div className="tp-readiness"><span className={providerStatus.ready ? "ready" : "blocked"}>{providerStatus.ready ? <Check size={13}/> : <AlertTriangle size={13}/>} {selected.source}</span><span className={modelReady ? "ready" : "blocked"}>{modelReady ? <Check size={13}/> : <AlertTriangle size={13}/>} Model</span><span className={rigValidation.valid ? "ready" : "advisory"}>{rigValidation.valid ? <Check size={13}/> : <AlertTriangle size={13}/>} {rigValidation.valid ? "Test Rig ready" : "Profile only"}</span></div>{!providerStatus.ready && <div className="tp-audition-alert"><AlertTriangle size={18}/><span><strong>{selected.source} is not ready</strong><small>{providerStatus.reason}</small></span></div>}{!rigValidation.valid && <div className="tp-audition-alert info"><AlertTriangle size={18}/><span><strong>Profile-only demo remains available</strong><small>{rigValidation.errors[0]} Fix the Test Rig to load its surrounding FX on the pedal.</small></span></div>}{store.auditionError && <div className="tp-audition-alert error" role="alert"><AlertTriangle size={18}/><span><strong>Audition failed</strong><small>{store.auditionError}</small></span></div>}
+      {saveRigResult && <div className={cn("tp-save-rig-result", saveRigResult.warning && "warning")} role={saveRigResult.warning ? "alert" : "status"}>
+        {saveRigResult.warning ? <AlertTriangle size={17}/> : <Check size={17}/>}
+        <span><strong>Saved “{saveRigResult.name}” to Rigs</strong><small>{saveRigResult.warning ?? (saveRigResult.setlistName ? `Also added to ${saveRigResult.setlistName}.` : "The live audition is still active.")}</small></span>
+        <IconButton label="Dismiss save result" onClick={() => setSaveRigResult(null)}><X size={15}/></IconButton>
+      </div>}
       <div className="audition-actions" aria-label="Tone audition actions">
-        <div className={cn("audition-actions__transport", store.auditioningToneId && "is-active")}>
-          {store.auditioningToneId && <Button className="audition-action audition-action--stop" variant="danger" loading={store.auditionBusy} onClick={() => void store.stopAudition().catch(() => undefined)}><StopCircle size={16}/> Stop</Button>}
-          <Button disabled={!auditionReady} loading={store.auditionBusy} variant="primary" className="audition-action audition-action--primary" onClick={() => void store.auditionTone(selected).catch(() => undefined)}><Play size={16}/> {store.auditioningToneId === selected.id ? "Audition again on HeadRush" : "Audition on HeadRush"}</Button>
+        {showNamOutput && captureBlock && namOutput && <section className="audition-nam-output" aria-label="Quick NAM output">
+          <header><span><strong>NAM output</strong><small>Adjust the level leaving the auditioned model without opening Test Rig Studio.</small></span><Badge tone={store.auditioningToneId === selected.id ? "green" : "cyan"}>{store.auditioningToneId === selected.id ? "LIVE ON HEADRUSH" : "SAVED IN TEST RIG"}</Badge></header>
+          <ParameterControl compact parameter={{ ...namOutput, label: "NAM output" }} onChange={(value) => store.updateTestRigParameter(captureBlock.id, namOutput.id, value)}/>
+        </section>}
+        <div className={cn("audition-actions__transport", store.auditioningToneId && "has-active-audition", selectedToneIsActive && "is-active")}>
+          <span className="audition-transport-status" aria-live="polite">{selectedToneIsActive ? "Audition active. Stop, refresh and save controls are available." : "Audition stopped."}</span>
+          {store.auditioningToneId && <Button className="audition-action audition-action--stop" variant="danger" loading={transportBusy === "stop"} disabled={store.auditionBusy && transportBusy !== "stop"} onClick={() => runTransport("stop", store.stopAudition)}><StopCircle size={16}/> Stop</Button>}
+          {selectedToneIsActive ? <>
+            <Button ref={refreshButtonRef} disabled={!auditionReady || (store.auditionBusy && transportBusy !== "refresh")} loading={transportBusy === "refresh"} variant="primary" className="audition-action audition-action--primary" onClick={() => runTransport("refresh", () => store.auditionTone(selected))}><RefreshCw size={16}/> Refresh rig</Button>
+            <Button disabled={store.auditionBusy} className="audition-action audition-action--save-rig" onClick={() => { setSaveRigResult(null); setSaveRigOpen(true); }}><Save size={16}/> Save to rigs</Button>
+          </> : <Button ref={auditionButtonRef} disabled={!auditionReady} loading={store.auditionBusy} variant="primary" className="audition-action audition-action--primary" onClick={() => void store.auditionTone(selected).catch(() => undefined)}><Play size={16}/> Audition on HeadRush</Button>}
         </div>
         <div className="audition-actions__secondary">
-          <Button className="audition-action audition-action--secondary" disabled={!modelReady} loading={downloadBusy} onClick={async () => { setDownloadBusy(true); try { await deviceApi.downloadTone(selected, selectedModel); store.addDiagnostic({ level: "success", source: "TonePilot", message: `Downloaded ${selected.title} to the device` }); } catch (error) { store.addDiagnostic({ level: "warning", source: "TonePilot", message: "Download failed", detail: deviceErrorDetail(error) }); } finally { setDownloadBusy(false); } }}><Download size={16}/> Save to device</Button>
+          <Button className="audition-action audition-action--secondary" disabled={!modelReady} loading={downloadBusy} onClick={async () => { setDownloadBusy(true); try { await deviceApi.downloadTone(selected, selectedModel); store.addDiagnostic({ level: "success", source: "TonePilot", message: `Downloaded ${selected.title} to the device` }); } catch (error) { store.addDiagnostic({ level: "warning", source: "TonePilot", message: "Download failed", detail: deviceErrorDetail(error) }); } finally { setDownloadBusy(false); } }}><Download size={16}/> Download source</Button>
         </div>
-      </div><p className="audition-note"><Gauge size={14}/> Audition loads the profile and valid Test Rig FX into the pedal's temporary chain. Nothing is saved to the device library; Finish & return restores the rig active before testing.</p>
+      </div><p className="audition-note"><Gauge size={14}/> Audition and Refresh use the pedal's temporary chain. Only Save to rigs writes it to the device library; Finish & return restores the rig active before testing.</p>
       </> : <div className="audition-empty"><Sparkles size={29}/><h3>TonePilot is ready</h3><p>Search only when you want fresh provider results. Cached results and local filters remain instant.</p><Button onClick={() => setWorkspace("test-rigs")}><SlidersHorizontal size={14}/> Configure test rigs</Button></div>}</aside></div></>}
     <TestRigEditorDialog open={Boolean(testRig && customize)} onClose={() => setCustomize(false)}/>
+    {selected && <TonePilotSaveRigDialog open={saveRigOpen && selectedToneIsActive} onClose={() => setSaveRigOpen(false)} onSaved={setSaveRigResult} toneTitle={selected.title}/>}
   </div>;
 }

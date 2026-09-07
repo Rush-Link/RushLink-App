@@ -2,7 +2,7 @@ import { act, createEvent, fireEvent, render, screen } from "@testing-library/re
 import { describe, expect, it, vi } from "vitest";
 import type { Parameter } from "../domain/types";
 import { equalizerXForFrequency, equalizerYForGain } from "../domain/equalizer";
-import { EqGraph } from "./editor";
+import { EqGraph } from "../components/system/eq-graph";
 
 const numeric = (id: string, label: string, value: number, min: number, max: number, unit?: string, step?: number): Parameter => ({
   id, label, value, min, max, unit, step, writable: true,

@@ -207,12 +207,12 @@ describe("Tone3000 capture analysis", () => {
 
   it("ships six gain-staged sound profiles with writable reflected controls", () => {
     const expected = {
-      clean: { amp: "67 Black Duo", ampSlot: 5, drive: undefined, lowCut: 75, highCut: 8500, slots: [0, 1, 5, 6, 7, 9, 13], order: ["input", "compressor", "amp", "clone", "ir", "reverb", "output"] },
-      overdrive: { amp: "67 Black Duo", ampSlot: 5, drive: "B2 Drive", lowCut: 80, highCut: 7500, slots: [0, 1, 3, 5, 6, 7, 9, 13], order: ["input", "compressor", "overdrive", "amp", "clone", "ir", "reverb", "output"] },
-      distortion: { amp: "67 Plexiglas Vari", ampSlot: 5, drive: "White Boost", lowCut: 80, highCut: 7200, slots: [0, 3, 5, 6, 7, 9, 13], order: ["input", "overdrive", "amp", "clone", "ir", "reverb", "output"] },
-      lead: { amp: "82 Lead 800 100W", ampSlot: 5, drive: "S1 Drive", lowCut: 85, highCut: 6800, slots: [0, 3, 5, 6, 7, 8, 9, 13], order: ["input", "overdrive", "amp", "clone", "ir", "delay", "reverb", "output"] },
-      rhythm: { amp: "85 M-2 Lead", ampSlot: 4, drive: "Green JRC-OD", lowCut: 90, highCut: 6500, slots: [0, 3, 4, 5, 6, 7, 13], order: ["input", "overdrive", "amp", "eq", "clone", "ir", "output"] },
-      metal: { amp: "99 PV51 II Lead", ampSlot: 5, drive: "Green JRC-OD", lowCut: 85, highCut: 6200, slots: [0, 3, 5, 6, 7, 13], order: ["input", "overdrive", "amp", "clone", "ir", "output"] },
+      clean: { amp: "67 Black Duo", ampSlot: 5, drive: undefined, lowCut: 65, highCut: 12000, slots: [0, 1, 5, 6, 7, 9, 13], order: ["input", "compressor", "amp", "clone", "ir", "reverb", "output"] },
+      overdrive: { amp: "67 Black Duo", ampSlot: 5, drive: "B2 Drive", lowCut: 65, highCut: 12000, slots: [0, 1, 3, 5, 6, 7, 9, 13], order: ["input", "compressor", "overdrive", "amp", "clone", "ir", "reverb", "output"] },
+      distortion: { amp: "67 Plexiglas Vari", ampSlot: 5, drive: "White Boost", lowCut: 65, highCut: 12000, slots: [0, 3, 5, 6, 7, 9, 13], order: ["input", "overdrive", "amp", "clone", "ir", "reverb", "output"] },
+      lead: { amp: "82 Lead 800 100W", ampSlot: 5, drive: "S1 Drive", lowCut: 65, highCut: 12000, slots: [0, 3, 5, 6, 7, 8, 9, 13], order: ["input", "overdrive", "amp", "clone", "ir", "delay", "reverb", "output"] },
+      rhythm: { amp: "85 M-2 Lead", ampSlot: 4, drive: "Green JRC-OD", lowCut: 65, highCut: 12000, slots: [0, 3, 4, 5, 6, 7, 13], order: ["input", "overdrive", "amp", "eq", "clone", "ir", "output"] },
+      metal: { amp: "99 PV51 II Lead", ampSlot: 5, drive: "Green JRC-OD", lowCut: 65, highCut: 12000, slots: [0, 3, 5, 6, 7, 13], order: ["input", "overdrive", "amp", "clone", "ir", "output"] },
     } as const;
 
     for (const rig of testRigTemplates) {

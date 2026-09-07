@@ -1,0 +1,102 @@
+/* The reusable editor for the pedal's device-side MIDI Out configuration. */
+.midi-header-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  min-height: 27px;
+  padding: 0 10px;
+  overflow: hidden;
+  color: #c8b7ff;
+  border: 1px solid rgba(var(--violet-rgb), .3);
+  border-radius: 999px;
+  background: rgba(var(--violet-rgb), .09);
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  letter-spacing: .04em;
+  white-space: nowrap;
+}
+
+.midi-header-status.ready { color: #94e5bc; border-color: rgba(var(--green-rgb), .28); background: rgba(var(--green-rgb), .075); }
+.midi-header-status.engine { color: #c8b7ff; }
+
+.midi-out-studio {
+  --midi-color: #ae8cff;
+  overflow: hidden;
+  border-color: rgba(var(--violet-rgb), .24);
+  border-radius: 14px;
+  background: linear-gradient(150deg, rgba(19, 24, 37, .99), rgba(8, 13, 20, .99));
+}
+
+.midi-out-studio__head { position: relative; display: grid; grid-template-columns: 43px minmax(0, 1fr) auto; align-items: center; gap: 12px; min-height: 78px; padding: 13px 16px; border-bottom: 1px solid rgba(var(--violet-rgb), .15); background: linear-gradient(90deg, rgba(var(--violet-rgb), .08), transparent 60%); }
+.midi-out-studio__head::before { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 3px; background: var(--violet); box-shadow: 0 0 13px var(--violet); }
+.midi-out-studio__icon { display: grid; place-items: center; width: 43px; height: 43px; border: 1px solid rgba(var(--violet-rgb), .3); border-radius: 11px; background: rgba(var(--violet-rgb), .09); color: var(--violet); }
+.midi-out-studio__head small { display: block; color: var(--violet); font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.midi-out-studio__head h2 { margin: 3px 0; color: #ecebf7; font-size: 15px; }
+.midi-out-studio__head p { color: #8593a8; font-size: 12px; line-height: 1.35; }
+
+.midi-preset-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 13px; border-bottom: 1px solid #273446; background: #0a1018; }
+.midi-preset-select { display: grid; grid-template-columns: auto minmax(180px, 1fr); align-items: center; gap: 9px; min-width: 0; color: var(--violet); }
+.midi-preset-select > span { min-width: 0; }
+.midi-preset-bar small, .midi-preset-bar strong { display: block; }
+.midi-preset-bar small { color: #708297; font-size: 11px; font-weight: 800; letter-spacing: .12em; }
+.midi-preset-select select { min-width: 210px; width: 100%; height: 32px; margin-top: 3px; padding: 0 31px 0 8px; border: 1px solid #35465a; border-radius: 7px; background: #080e15; color: #d9e3ea; font-size: 12px; cursor: pointer; }
+.midi-preset-select select:hover, .midi-preset-select select:focus { border-color: rgba(var(--violet-rgb), .55); }
+.midi-preset-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.midi-preset-create { display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: end; gap: 7px; padding: 10px 13px; border-bottom: 1px solid rgba(var(--violet-rgb), .13); background: rgba(var(--violet-rgb), .035); }
+.midi-preset-create label { display: grid; gap: 5px; color: #a8b5c4; font-size: 11px; font-weight: 700; }
+
+.midi-lane-strip { display: grid; grid-template-columns: repeat(5, minmax(105px, 1fr)); gap: 6px; padding: 10px 12px; border-bottom: 1px solid #273446; background: #090f16; }
+.midi-lane-strip > button { position: relative; min-width: 0; min-height: 55px; display: grid; grid-template-columns: 30px minmax(0, 1fr); align-items: center; gap: 7px; padding: 7px 8px; overflow: hidden; border: 1px solid #2e3d4f; border-radius: 9px; background: linear-gradient(145deg, #101822, #090f16); color: #74879b; text-align: left; cursor: pointer; transition: border-color .14s ease, background .14s ease, transform .14s ease; }
+.midi-lane-strip > button:hover { border-color: #4b5e75; transform: translateY(-1px); }
+.midi-lane-strip > button.active { border-color: var(--violet); background: linear-gradient(145deg, rgba(var(--violet-rgb), .13), #0a1119); box-shadow: inset 0 -2px var(--violet); }
+.midi-lane-strip > button > span:first-child { display: grid; place-items: center; width: 30px; height: 30px; border: 1px solid #37475a; border-radius: 8px; background: #111b26; color: #9baabb; font: 750 12px ui-monospace, Consolas, monospace; }
+.midi-lane-strip > button.active > span:first-child { border-color: rgba(var(--violet-rgb), .45); background: rgba(var(--violet-rgb), .12); color: #c8b7ff; }
+.midi-lane-strip strong, .midi-lane-strip small { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.midi-lane-strip strong { color: #d8e1e9; font-size: 11px; }
+.midi-lane-strip small { margin-top: 3px; color: #708397; font-size: 11px; }
+.midi-lane-strip > button > i { position: absolute; top: 7px; right: 7px; width: 5px; height: 5px; border-radius: 50%; background: #455468; }
+.midi-lane-strip > button.configured > i { background: var(--green); box-shadow: 0 0 7px var(--green); }
+
+.midi-message-editor { margin: 0; padding: 13px; background: radial-gradient(circle at 100% 0, rgba(var(--violet-rgb), .055), transparent 32%), #0a1018; }
+.midi-message-editor__toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
+.midi-message-editor__toolbar small, .midi-message-editor__toolbar strong { display: block; }
+.midi-message-editor__toolbar small { color: #71859a; font-size: 11px; font-weight: 800; letter-spacing: .13em; }
+.midi-message-editor__toolbar strong { margin-top: 3px; color: #e1e9ef; font-size: 13px; }
+.midi-state-switcher { display: flex; align-items: center; gap: 3px; padding: 3px; border: 1px solid #334255; border-radius: 8px; background: #080e15; }
+.midi-state-switcher > button { min-height: 30px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; padding: 0 9px; border: 0; border-radius: 6px; background: transparent; color: #8193a5; font-size: 11px; font-weight: 700; cursor: pointer; }
+.midi-state-switcher > button.active { background: rgba(var(--cyan-rgb), .11); color: var(--cyan); }
+.midi-state-switcher > button.active.alternate { background: rgba(var(--amber-rgb), .12); color: var(--amber); }
+.midi-state-switcher > button.add { color: #b7a5ed; }
+.midi-state-switcher > .switch { margin-left: 4px; }
+
+.midi-message-editor .reflection-editor--settings { grid-template-columns: repeat(4, minmax(125px, 1fr)); gap: 7px; padding: 0; }
+.midi-message-editor .reflection-control { min-height: 82px; border-color: rgba(var(--violet-rgb), .15); background: linear-gradient(145deg, rgba(var(--violet-rgb), .035), #090f16); }
+.midi-message-editor .reflection-control[data-parameter^="Type"] { grid-column: 1 / -1; }
+.midi-message-editor .reflection-control[data-parameter^="Type"] .parameter-choice__tiles { grid-template-columns: repeat(5, minmax(80px, 1fr)); }
+.midi-message-help { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; padding: 8px 10px; border: 1px solid #2c394a; border-radius: 8px; background: #080e15; color: #7f92a4; font-size: 11px; line-height: 1.4; }
+.midi-action-feedback { margin: 0 13px 13px; padding: 9px 10px; border: 1px solid rgba(var(--green-rgb), .24); border-radius: 8px; background: rgba(var(--green-rgb), .055); color: #8be5bd; font-size: 12px; }
+
+@media (max-width: 1120px) {
+  .midi-message-editor .reflection-editor--settings { grid-template-columns: repeat(2, minmax(140px, 1fr)); }
+}
+
+@media (max-width: 760px) {
+  .midi-out-studio__head { grid-template-columns: 40px minmax(0, 1fr); }
+  .midi-out-studio__icon { width: 40px; height: 40px; }
+  .midi-out-studio__head > .midi-header-status { grid-column: 1 / -1; justify-self: start; }
+  .midi-preset-bar, .midi-message-editor__toolbar { align-items: flex-start; flex-direction: column; }
+  .midi-preset-actions { width: 100%; }
+  .midi-preset-actions .ui-button { flex: 1; }
+  .midi-lane-strip { grid-template-columns: repeat(5, minmax(92px, 1fr)); overflow-x: auto; }
+  .midi-preset-create { grid-template-columns: minmax(0, 1fr) auto auto; }
+}
+
+@media (max-width: 430px) {
+  .midi-message-editor .reflection-editor--settings { grid-template-columns: 1fr; }
+  .midi-message-editor .reflection-control[data-parameter^="Type"] .parameter-choice__tiles { grid-template-columns: 1fr 1fr; }
+  .midi-state-switcher { width: 100%; overflow-x: auto; }
+  .midi-preset-create { grid-template-columns: 1fr auto; }
+  .midi-preset-create label { grid-column: 1 / -1; }
+}

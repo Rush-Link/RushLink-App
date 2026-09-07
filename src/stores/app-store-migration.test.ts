@@ -63,6 +63,23 @@ describe("app-store migration and recovery", () => {
     expect(migrated.blocks.find((block) => block.category === "reverb")?.slot).toBe(4);
   });
 
+  it("applies the revised IR bandwidth only when upgrading an older workspace", () => {
+    const legacy = structuredClone(testRigTemplates.find((rig) => rig.id === "clean")!);
+    const legacyIr = legacy.blocks.find((block) => block.id === "clean-ir")!;
+    legacyIr.parameters.find((parameter) => parameter.id === "LoCut")!.value = 75;
+    legacyIr.parameters.find((parameter) => parameter.id === "HiCut")!.value = 8500;
+
+    const upgraded = migratePersistedAppState({ testRigs: [legacy] }, 5).testRigs![0];
+    const upgradedIr = upgraded.blocks.find((block) => block.id === "clean-ir")!;
+    expect(upgradedIr.parameters.find((parameter) => parameter.id === "LoCut")?.value).toBe(65);
+    expect(upgradedIr.parameters.find((parameter) => parameter.id === "HiCut")?.value).toBe(12000);
+
+    const current = migratePersistedAppState({ testRigs: [legacy] }, APP_STATE_VERSION).testRigs![0];
+    const currentIr = current.blocks.find((block) => block.id === "clean-ir")!;
+    expect(currentIr.parameters.find((parameter) => parameter.id === "LoCut")?.value).toBe(75);
+    expect(currentIr.parameters.find((parameter) => parameter.id === "HiCut")?.value).toBe(8500);
+  });
+
   it("recovers malformed StageHand dimensions, spacing, controls and missing MIDI", () => {
     const tuner = actionPalette.find((button) => button.action === "tuner" && !button.widget)!;
     const buttons = Array(12).fill(null);

@@ -107,6 +107,9 @@
 .stagehand-midi-activity .badge { flex: 0 0 auto; max-width: 52%; overflow: hidden; text-overflow: ellipsis; }
 .stagehand-midi-activity small { min-width: 0; overflow: hidden; color: #718095; font: 700 11px/1.3 ui-monospace, monospace; text-overflow: ellipsis; white-space: nowrap; }
 .stagehand-midi-help { margin: 0; padding: 7px 8px; border-left: 2px solid #344155; background: #090e14; color: #657388; font-size: 11px; line-height: 1.45; }
+.stagehand-midi-bridge--shared > div:nth-child(2) { grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.stagehand-midi-bridge--shared > .ui-button { width: 100%; justify-content: center; }
+.stagehand-midi-bridge--shared .stagehand-midi-help { margin: 0; }
 
 .stagehand-v2 .live-pad--widget { align-items: stretch; justify-content: stretch; min-height: clamp(112px, 10vw, 138px); padding: 10px; cursor: pointer; }
 .stagehand-v2 .live-pad--widget::after { left: 8%; right: 8%; }

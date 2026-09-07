@@ -13,6 +13,8 @@ import { useAppStore } from "../stores/app-store";
 import { Badge, Button, Card, Dialog, EmptyState, IconButton, Input, Progress, Select, Switch, Tabs } from "../components/ui";
 import { cn } from "../lib/utils";
 import { PageTitle } from "../components/system/page-title";
+import "../styles/backup-modern.css";
+import "../styles/device-index-browser.css";
 
 export const FILE_AREAS: Array<{ kind: DeviceFileKind; path: string; label: string; icon: typeof Folder }> = [
   { kind: "folders", path: "", label: "Folders", icon: Folder }, { kind: "rig", path: "Rigs", label: "Rigs", icon: FileArchive },

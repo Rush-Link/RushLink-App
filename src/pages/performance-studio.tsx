@@ -6,6 +6,7 @@ import {
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Badge, Button, Card, Dialog, Input, Select, Switch, Tabs } from "../components/ui";
 import { ReflectionEditor } from "../components/system/reflection-editor";
+import { EqGraph } from "../components/system/eq-graph";
 import { denormalizeValue, parameterDeviceValue, parametersForObject } from "../domain/headrush-reflection";
 import { advanceDrumFrame, deviceDrumFrame, drumBeatDurationMs, drumBeatsRemaining, drumCounts, drumPhraseProgress, type DrumTransportFrame } from "../domain/drum-transport";
 import type { HeadRushObject, Parameter } from "../domain/types";
@@ -13,7 +14,10 @@ import { deviceApi } from "../services/device-api";
 import { deviceErrorMessage } from "../services/device-errors";
 import { useAppStore } from "../stores/app-store";
 import { PageTitle } from "../components/system/page-title";
-import { EqGraph } from "./editor";
+import "../styles/performance-tools.css";
+import "../styles/performance-modern.css";
+import "../styles/drum-preset-dialog.css";
+import "../styles/device-tuner-controls.css";
 
 const DRUMS = "/Evil/Engine/DrumsCtrl"; const TUNER_INPUT = "/Evil/Engine/AudioCtrl/Input"; const TUNER = "/Evil/Engine/AudioCtrl/Tuner"; const FFT = "/Evil/Engine/FFTCtrl"; const MAIN_EQ = "/Evil/Engine/GlobalEQMain"; const AMP_EQ = "/Evil/Engine/GlobalEQAmp";
 const values = (object: HeadRushObject | undefined) => object?.value ?? {};

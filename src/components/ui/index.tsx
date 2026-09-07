@@ -6,6 +6,7 @@ import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { LoaderCircle, X } from "lucide-react";
 import { cn } from "../../lib/utils";
+import "../../styles/ui-components.css";
 
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline";
 

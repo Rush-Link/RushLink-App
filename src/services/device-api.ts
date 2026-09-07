@@ -61,6 +61,14 @@ export function normalizeDeviceFilePath(path: string): string {
   return segments.join("/");
 }
 
+export function tone3000ModelFilename(model: { remoteId: number; name: string; url: string; metadata?: Record<string, string | number | boolean> }): string {
+  const explicit = [model.metadata?.filename, model.metadata?.file_name, model.metadata?.fileName].find((value) => typeof value === "string" && value.trim());
+  let urlName = "";
+  try { urlName = decodeURIComponent(new URL(model.url).pathname.split("/").filter(Boolean).at(-1) ?? ""); } catch { /* A provider-relative URL can still use its model name. */ }
+  const source = String(explicit ?? (urlName || model.name || String(model.remoteId))).replace(/[<>:"/\\|?*]/g, "").trim() || String(model.remoteId);
+  return /\.nam$/i.test(source) ? source : `${source}.nam`;
+}
+
 function uniqueDeviceNames(names: string[]): string[] {
   const seen = new Set<string>();
   const result: string[] = [];
@@ -130,13 +138,28 @@ function assertMethodResponse(response: ApiResponse, action: string): unknown {
   return reflectedReturn(responseFor(response, action));
 }
 
-function assertTone3000Envelope(response: ApiResponse, action: string): void {
+function assertTone3000Envelope(response: ApiResponse, action: string, requireConfirmedSuccess = false): void {
   const result = assertMethodResponse(response, action);
   if (result === false) throw new Error(`${action} was rejected by Tone3000.`);
-  if (!result || typeof result !== "object" || !("success" in result)) return;
+  if (!result || typeof result !== "object" || !("success" in result)) {
+    if (requireConfirmedSuccess) throw invalidDeviceResponse(action, "a confirmed Tone3000 success response", result);
+    return;
+  }
   const envelope = result as { success?: boolean; errorMessage?: unknown };
   if (envelope.success === false) throw new Error(typeof envelope.errorMessage === "string" && envelope.errorMessage.trim() ? envelope.errorMessage : `${action} was rejected by Tone3000.`);
+  if (requireConfirmedSuccess && envelope.success !== true) throw invalidDeviceResponse(action, "a confirmed Tone3000 success response", result);
 }
+
+function assertProviderDownloadResponse(response: ApiResponse, action: string): void {
+  const result = assertMethodResponse(response, action);
+  if (result === false) throw new Error(`${action} was rejected by the device.`);
+  if (result !== true) throw invalidDeviceResponse(action, "a boolean success result", result);
+}
+
+const reflectedDocumentId = () => globalThis.crypto?.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+  const random = Math.floor(Math.random() * 16);
+  return (character === "x" ? random : (random & 0x3) | 0x8).toString(16);
+});
 
 export const deviceApi = {
   isNative: native,
@@ -295,6 +318,26 @@ export const deviceApi = {
     return reflectedReturn(await this.callMethod("/Evil/API/Setlists", "getSetlist", [id]));
   },
 
+  async canSaveNewRig(): Promise<boolean> {
+    const result = assertMethodResponse(
+      await this.callMethod("/Evil/API/Rigs", "canSaveNewRig", [true]),
+      "Checking whether a new rig can be saved",
+    );
+    if (typeof result !== "boolean") throw invalidDeviceResponse("Checking whether a new rig can be saved", "a boolean result", result);
+    return result;
+  },
+
+  async saveRigAs(name: string): Promise<void> {
+    const trimmedName = name.trim();
+    if (!trimmedName) throw new Error("Enter a rig name.");
+    const result = assertMethodResponse(
+      await this.callMethod("/Evil/API/Rigs", "saveRigAs", [trimmedName, -1]),
+      "Saving rig to HeadRush",
+    );
+    if (result === false) throw new Error("Saving rig to HeadRush was rejected by the device.");
+    if (result !== true) throw invalidDeviceResponse("Saving rig to HeadRush", "a boolean success result", result);
+  },
+
   async blockPresets(blockName: string): Promise<string[]> {
     const result = reflectedReturn(await this.callMethod("/Evil/API/Blocks", "blockPresets", [blockName]));
     return Array.isArray(result) ? result.map(String) : [];
@@ -316,19 +359,47 @@ export const deviceApi = {
     await this.callMethod("/Evil/API/Blocks", "deletePreset", [blockName, presetName]);
   },
 
-  async saveSetlist(id: string, name: string, rigIds: string[]): Promise<void> {
-    const payload = { id, name, data: rigIds.map((rigId, order) => ({ id: rigId, order })) };
-    await this.callMethod("/Evil/API/Setlists", "saveSetlist", [JSON.stringify(payload), id]);
+  async saveSetlist(id: string, name: string, rigIds: string[]): Promise<string> {
+    const creating = !id;
+    const saveAsName = creating ? name.trim() : "";
+    if (creating && !saveAsName) throw new Error("Enter a setlist name.");
+    const payload = { id: creating ? reflectedDocumentId() : id, name: creating ? "" : name, data: rigIds.map((rigId, order) => ({ id: rigId, order })) };
+    return this.saveSetlistDocument(payload, saveAsName);
   },
 
-  async downloadTone(tone: { source: string; remoteId?: string | number; remoteKind?: string }, model?: { remoteId: number; name: string; url: string }): Promise<void> {
+  async saveSetlistDocument(payload: Record<string, unknown>, saveAsName = ""): Promise<string> {
+    const result = assertMethodResponse(
+      await this.callMethod("/Evil/API/Setlists", "saveSetlist", [JSON.stringify(payload), saveAsName]),
+      "Saving setlist to HeadRush",
+    );
+    if (result === false) throw new Error("Saving setlist to HeadRush was rejected by the device.");
+    if (typeof result !== "string" || !result.trim()) throw invalidDeviceResponse("Saving setlist to HeadRush", "a non-empty setlist ID", result);
+    return result.trim();
+  },
+
+  async downloadTone(
+    tone: { source: string; remoteId?: string | number; remoteKind?: string },
+    model?: { remoteId: number; name: string; url: string; metadata?: Record<string, string | number | boolean> },
+    downloadName = "",
+  ): Promise<void> {
     if (tone.source === "Tone3000") {
       if (!model) throw new Error("Choose a compatible Tone3000 model first.");
-      await this.callMethod("/Evil/API/Tone3000", "downloadModelToDevice", [model.remoteId, model.name, model.url]);
+      assertTone3000Envelope(
+        await this.callMethod("/Evil/API/Tone3000", "downloadModelToDevice", [model.remoteId, model.url, tone3000ModelFilename(model)]),
+        "Tone3000 model download",
+        true,
+      );
       return;
     }
+    const remoteId = tone.remoteId;
+    if (remoteId === null || remoteId === undefined || String(remoteId).trim() === "") {
+      throw new Error("This HeadRush Cloud item has no usable device identifier.");
+    }
     const method = tone.remoteKind === "clone" ? "downloadClone" : "downloadRig";
-    await this.callMethod("/Evil/Cloud/Master", method, [String(tone.remoteId ?? ""), ""]);
+    assertProviderDownloadResponse(
+      await this.callMethod("/Evil/Cloud/Master", method, [String(remoteId), downloadName.trim()]),
+      tone.remoteKind === "clone" ? "HeadRush Cloud clone download" : "HeadRush Cloud rig download",
+    );
   },
 
   async startToneDemo(tone: Pick<CloudTone, "id" | "source" | "remoteId" | "remoteKind">, model?: Pick<ToneModel, "remoteId" | "url">): Promise<void> {

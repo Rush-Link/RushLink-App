@@ -216,6 +216,27 @@ describe("TonePilot temporary Test Rig planning", () => {
     });
   });
 
+  it("normalizes editable NAM input and output while refusing to replace the auditioned NAM file", () => {
+    const block = structuredClone(testRigTemplates[0].blocks.find((candidate) => candidate.name === "Capture slot")!);
+    block.parameters.find((parameter) => parameter.id === "Input")!.value = 6;
+    block.parameters.find((parameter) => parameter.id === "Output")!.value = 8;
+    block.parameters.push({ id: "LoadedClone", sourceProperty: "LoadedClone", label: "NAM file", value: "Models/wrong.nam", writable: true, deviceFile: { fileType: 7, startPath: "Models" } });
+    const object: HeadRushObject = {
+      meta: { properties: {
+        On: { type: "boolean" },
+        Input: { type: "number", minimum: -20, maximum: 20, "x-options": { grid: .1 } },
+        Output: { type: "number", minimum: -40, maximum: 40, "x-options": { grid: .1 } },
+        LoadedClone: { type: "string", "x-options": { fileType: 7, startPath: "Models" } },
+      } },
+      value: { On: true, Input: .5, Output: .5, LoadedClone: "Models/provider.nam", order: ["Input", "Output", "LoadedClone"], labels: ["Input", "Output", "NAM file"] },
+    };
+
+    const properties = testRigBlockProperties(block, object, true);
+    expect(properties.Input).toBeCloseTo(.65);
+    expect(properties.Output).toBeCloseTo(.6);
+    expect(properties).not.toHaveProperty("LoadedClone");
+  });
+
   it("does not invent properties missing from the reflected device schema", () => {
     const block = testRigTemplates[0].blocks.find((candidate) => candidate.category === "ir")!;
     const object: HeadRushObject = { meta: { properties: { On: { type: "boolean" }, Gain: { type: "number", minimum: -48, maximum: 18 } } }, value: { On: true, Gain: .5 } };

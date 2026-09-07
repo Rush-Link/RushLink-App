@@ -19,6 +19,42 @@ npm run build:desktop
 
 Installers are written below `src-tauri/target/release/bundle/`. Test the installer and uninstall flow on a machine or Windows Sandbox that has never run RushLink; an existing development profile is never embedded in the installer but can make a local smoke test look pre-populated.
 
+## Linux preview builds
+
+The separate `Build RushLink Linux preview` workflow in `.github/workflows/linux-build.yml`
+builds x86-64 `.deb` and `.AppImage` packages on Ubuntu 22.04. This baseline follows
+[Tauri's Linux compatibility guidance](https://v2.tauri.app/distribute/debian/).
+It runs application tests, native Linux tests, and release privacy checks before
+packaging. Only installers and SHA-256 checksums are uploaded as private Actions
+artifacts, retained for 14 days. It does not create or modify public releases.
+
+Run it manually after the workflow exists on the private repository's default
+branch, or push an approved build snapshot to a `build/linux-*` branch to trigger
+it without changing the default branch. Include the current app sources and new
+component styles; building an old committed revision will omit local fixes.
+Do not include local profiles, databases, credentials, or device captures.
+Private-repository builds consume the organization's Actions allowance.
+
+Download the `RushLink-linux-x64-<run number>` artifact from the completed run.
+Verify its checksums before testing. Linux GUI startup, WebKitGTK rendering,
+HeadRush discovery, and live device interaction still require Linux smoke tests;
+a successful package build alone does not establish hardware compatibility.
+StageHand MIDI input depends on the Linux WebView exposing Web MIDI and may be
+unavailable. A numeric LAN address can be used if `.local` discovery is unavailable.
+An AppImage downloaded inside an Actions ZIP may need `chmod +x` before launch.
+
+On a prepared Linux machine, the equivalent package command is:
+
+```sh
+npm ci
+npx playwright install --with-deps chromium
+npm run release:check
+npm run tauri -- build --ci --bundles deb,appimage -- --locked
+```
+
+Install the Linux system packages listed in the workflow and a Rust toolchain
+first. Keep Linux build output separate from Windows build output.
+
 ## macOS builds
 
 Apple Silicon and Intel builds must run on macOS. The `Build RushLink desktop release` workflow builds both architectures on GitHub-hosted macOS runners and creates a draft prerelease containing the `.dmg` artifacts.

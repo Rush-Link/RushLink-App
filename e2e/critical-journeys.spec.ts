@@ -1,27 +1,9 @@
 import { expect, test, type Locator } from "@playwright/test";
+import { connectBrowserDemo } from "./support/connect-browser-demo";
 
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
-  const welcome = page.getByRole("dialog", { name: /Welcome to RushLink/i });
-  if (await welcome.isVisible({ timeout: 700 }).catch(() => false)) await welcome.getByRole("button", { name: /Continue/i }).click();
-  const safety = page.getByRole("dialog", { name: /Choose how changes reach the pedal/i });
-  if (await safety.isVisible({ timeout: 700 }).catch(() => false)) await safety.getByRole("button", { name: /Apply immediately/i }).click();
-  const connect = page.getByRole("dialog", { name: /Connect to your device/i });
-  if (await connect.isVisible({ timeout: 700 }).catch(() => false)) {
-    await page.evaluate(async () => {
-      // @ts-expect-error Vite exposes source modules in the E2E development build.
-      const { useAppStore } = await import("/src/stores/app-store.ts");
-      // @ts-expect-error Vite exposes source modules in the E2E development build.
-      const { demoCapabilities, demoDevice, demoRigs, demoSetlists } = await import("/src/data/demo-data.ts");
-      useAppStore.setState((state: { preferences: Record<string, unknown> }) => ({
-        device: { ...demoDevice, status: "demo" }, capabilities: structuredClone(demoCapabilities), connectionError: null,
-        rigs: structuredClone(demoRigs), selectedRigId: demoRigs[0].id, selectedBlockId: null,
-        setlists: structuredClone(demoSetlists), selectedSetlistId: demoSetlists[0].id,
-        preferences: { ...state.preferences, firstWriteResolved: true, writeMode: "immediate" },
-      }));
-    });
-    await expect(connect).not.toBeVisible();
-  }
+  await connectBrowserDemo(page);
 });
 
 test("navigates every core workspace and preserves a responsive shell", async ({ page }) => {
@@ -37,6 +19,19 @@ test("navigates every core workspace and preserves a responsive shell", async ({
   }
   await page.getByRole("button", { name: "Collapse" }).click();
   await expect(page.locator(".app")).toHaveClass(/app--collapsed/);
+});
+
+test("loads the Global EQ graph styles before Rig Editor has been visited", async ({ page }) => {
+  // Performance Tools shares EqGraph with Rig Editor. Its visual contract must
+  // travel with that component instead of depending on an earlier route visit.
+  await page.getByRole("button", { name: /^Performance Tools/ }).click();
+
+  const graph = page.locator(".global-eq-stage .graphic-eq");
+  await expect(graph).toBeVisible();
+  await expect(graph).toHaveCSS("isolation", "isolate");
+  await expect(graph).toHaveCSS("overflow", "hidden");
+  await expect(graph.locator(".eq-graph-status")).toHaveCSS("position", "absolute");
+  await expect(graph.locator(".eq-axis")).toHaveCSS("display", "flex");
 });
 
 test("drags effects in the Rig Editor and both Test Rig chain surfaces", async ({ page }) => {
@@ -99,6 +94,7 @@ test("drags effects in the Rig Editor and both Test Rig chain surfaces", async (
 
 test("auditions from TonePilot with clear wording and edits a complete Test Rig", async ({ page }) => {
   await page.getByRole("button", { name: "TonePilot", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "TonePilot", exact: true })).toBeVisible();
   await page.evaluate(async () => {
     // @ts-expect-error Vite serves source modules to the E2E development build.
     const { useAppStore } = await import("/src/stores/app-store.ts");
@@ -110,14 +106,29 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
       id: "e2e-tone", title: "E2E Amp", author: "QA", description: "Audition journey", captureType: "amp", detectedType: "amp",
       tags: ["amp"], rating: 4, downloads: 10, source: "Tone3000", imageColor: "#62deea", remoteId: 77, remoteKind: "tone-group",
     };
+    const selectedModel = { id: "e2e-model", remoteId: 9, name: "E2E A2", architecture: "A2", url: "https://models.test/e2e.nam" };
     useAppStore.setState({
       tones: [selected], selectedToneId: selected.id,
-      toneModels: { [selected.id]: [{ id: "e2e-model", remoteId: 9, name: "E2E A2", architecture: "A2", url: "https://models.test/e2e.nam" }] },
+      toneModels: { [selected.id]: [selectedModel] },
       selectedToneModelId: "e2e-model", testRigs: structuredClone(testRigTemplates), selectedTestRigId: "clean",
       toneLoading: false, toneModelLoading: false, auditionBusy: false, auditioningToneId: null, auditionError: null,
       auditionTone: async (tone: { id: string }) => {
         // @ts-expect-error Test-only instrumentation.
         window.__tonePilotAuditions.push(tone.id);
+        useAppStore.setState({
+          auditioningToneId: tone.id,
+          testRigReturn: {
+            id: "return-rig",
+            name: "Return rig",
+            auditionSource: "Tone3000",
+            testRigApplied: true,
+            audition: {
+              tone: structuredClone(selected),
+              model: structuredClone(selectedModel),
+              captureFile: { path: "/Evil/Engine/Patch/Neural_Amp_Modeler", property: "LoadedClone", value: "Tone 3000 Demo/e2e.nam" },
+            },
+          },
+        });
       },
     });
   });
@@ -130,6 +141,15 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
     return window.__tonePilotAuditions;
   })).toEqual(["e2e-tone"]);
 
+  await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh rig", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Save to rigs", exact: true }).click();
+  const saveDialog = page.getByRole("dialog", { name: "Save audition to Rigs" });
+  await expect(saveDialog).toBeVisible();
+  await expect(saveDialog.getByLabel("Rig name")).toHaveValue("E2E Amp");
+  await expect(saveDialog.getByLabel("Add to setlist")).toHaveValue("");
+  await saveDialog.getByRole("button", { name: "Cancel" }).click();
+
   await page.getByRole("tab", { name: /Test Rig Studio/i }).click();
   await expect(page.getByText("Capture marker in plan slot 7")).toBeVisible();
   await expect(page.locator(".tp-config-chain--slots > *")).toHaveCount(14);
@@ -137,6 +157,42 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
   const editor = page.getByRole("dialog");
   await expect(editor.locator(".tp-editor-slots > *")).toHaveCount(14);
   await expect(editor.getByText("Compatible blocks")).toBeVisible();
+});
+
+test("loads the shared IR file picker styles when TonePilot is the first editor opened", async ({ page }) => {
+  // Begin on the dashboard without visiting Rig Editor. The picker is shared
+  // by both workspaces and must own its styles instead of relying on route order.
+  await page.getByRole("button", { name: "TonePilot", exact: true }).click();
+  await page.getByRole("tab", { name: /Test Rig Studio/i }).click();
+  await page.getByRole("button", { name: /Full editor/i }).click();
+
+  const editor = page.getByRole("dialog", { name: /Edit .*Clean/i });
+  await editor.locator(".tp-editor-slot").filter({ hasText: "IR Loader" }).click();
+
+  const control = editor.locator(".device-file-control");
+  const browse = control.locator(".device-file-control__browse");
+  await expect(control).toBeVisible();
+  await expect(control).toHaveCSS("display", "grid");
+  await expect(control).toHaveCSS("overflow", "hidden");
+  await expect(browse).toHaveCSS("display", "grid");
+  await expect(control.locator(".device-file-control__action")).toHaveCSS("display", "flex");
+  expect((await control.evaluate((element) => getComputedStyle(element).gridTemplateColumns)).split(" ")).toHaveLength(3);
+
+  await browse.click();
+  const fileDialog = page.getByRole("dialog", { name: "Choose IR file" });
+  const browser = fileDialog.locator(".device-asset-browser");
+  const toolbar = browser.locator(".device-asset-browser__toolbar");
+  const list = browser.locator(".device-asset-browser__list");
+  await expect(fileDialog).toBeVisible();
+  await expect(browser).toHaveCSS("display", "grid");
+  await expect(toolbar).toHaveCSS("display", "grid");
+  await expect(list).toHaveCSS("display", "grid");
+  expect(await list.evaluate((element) => Number.parseFloat(getComputedStyle(element).minHeight))).toBeGreaterThanOrEqual(250);
+  expect((await list.evaluate((element) => getComputedStyle(element).gridTemplateColumns)).split(" ")).toHaveLength(2);
+
+  await page.setViewportSize({ width: 560, height: 900 });
+  await expect(list).toBeVisible();
+  expect((await list.evaluate((element) => getComputedStyle(element).gridTemplateColumns)).split(" ")).toHaveLength(1);
 });
 
 test("configures StageHand with input-only MIDI and no outbound-only remotes", async ({ page }) => {
