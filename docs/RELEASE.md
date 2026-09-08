@@ -57,7 +57,23 @@ first. Keep Linux build output separate from Windows build output.
 
 ## macOS builds
 
-Apple Silicon and Intel builds must run on macOS. The `Build RushLink desktop release` workflow builds both architectures on GitHub-hosted macOS runners and creates a draft prerelease containing the `.dmg` artifacts.
+Apple Silicon and Intel builds run on GitHub-hosted macOS runners. The
+`Build RushLink macOS preview` workflow in `.github/workflows/macos-build.yml`
+uses native runners for both architectures. Run it manually or push a build
+snapshot to a `build/macos-*` branch. It runs native tests and release checks,
+builds `.dmg` installers, and verifies the app signatures and binary architectures.
+Only installers and SHA-256 checksums are uploaded as private Actions artifacts,
+retained for 14 days.
+
+Preview builds use ad-hoc signing and need no Apple credentials. They are not
+notarized; successful packaging does not establish Gatekeeper acceptance or live
+HeadRush compatibility. Test installation, GUI startup, discovery and USB Transfer
+on each Mac architecture before public distribution. Private macOS builds consume
+the organization's Actions allowance.
+
+The `Build RushLink desktop release` workflow also builds both Mac architectures
+alongside Windows, and creates a draft prerelease in the private source repository.
+It uses ad-hoc signing when an Apple signing identity is not configured.
 
 For public distribution, configure these repository secrets before running the workflow:
 
