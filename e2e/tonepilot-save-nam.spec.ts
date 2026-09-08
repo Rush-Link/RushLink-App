@@ -60,6 +60,12 @@ test("NAM save stays usable through USB Wi-Fi loss and retains eject/Sync guidan
   await page.evaluate(async () => {
     // @ts-expect-error Vite serves source modules to the development browser test.
     const { useAppStore } = await import("/src/stores/app-store.ts");
+    // @ts-expect-error Vite serves source modules to the development browser test.
+    const { deviceApi } = await import("/src/services/device-api.ts");
+    // USB Transfer removes the Wi-Fi API; prevent browser demo polling from
+    // immediately changing the simulated disconnected device back to ready.
+    deviceApi.properties = async () => { throw new Error("Wi-Fi is unavailable during USB Transfer"); };
+    deviceApi.subtree = async () => { throw new Error("Wi-Fi is unavailable during USB Transfer"); };
     const device = useAppStore.getState().device;
     useAppStore.setState({ device: { ...device, status: "error" }, connectionError: "Wi-Fi is unavailable during USB Transfer" });
   });
