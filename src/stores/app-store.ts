@@ -3,7 +3,7 @@ import { persist } from "zustand/middleware";
 import { createBufferedPersistStorage } from "./buffered-persist-storage";
 import { cloudTones, defaultLiveLayout, defaultLiveStage, demoRigs, demoSetlists, demoSnapshots, testRigNamControls, testRigTemplates } from "../data/demo-data";
 import type { CaptureType, CloudTone, DeviceCapabilities, DeviceInfo, DiagnosticEvent, HeadRushSubtree, LiveActionType, LiveButton, LiveControlPreset, LiveDeviceSnapshot, LiveGesture, LiveLayout, LiveStage, LiveStageSpacing, MidiCommand, PendingWrite, Rig, RigBlock, RigHistoryEntry, Setlist, Snapshot, TestRigTemplate, ToneModel, WriteMode } from "../domain/types";
-import { DEFAULT_TONE3000_FILTERS, deviceApi, tone3000ModelFilename, type Tone3000SearchFilters } from "../services/device-api";
+import { DEFAULT_TONE3000_FILTERS, deviceApi, TONE3000_DEVICE_FOLDER, tone3000ModelFilename, tone3000ModelName, type Tone3000SearchFilters } from "../services/device-api";
 import { DEVICE_FIRST_ROW_COLUMNS, normalizeLiveDimensions, normalizeLiveMidiCommand, normalizeLiveStageSpacing, resizeLiveLayout } from "../domain/live-layout";
 import { addBlockToTestRig, CAPTURE_SLOT_NAME, detectCaptureType, duplicateTestRigBlock, effectiveCaptureType, mergeTestRigParameters, normalizeTestRigEffectOrder, normalizeTestRigSlots, placeTestRigBlock, testRigSlotAllowsBlock, toneProviderReadiness, validateTestRig } from "../domain/tone-analysis";
 import { parameterDeviceValue, parseHeadRushSubtree } from "../domain/headrush-reflection";
@@ -84,6 +84,17 @@ function availableCloudCloneName(requestedName: string, entries: string[]): stri
   throw new Error("HeadRush Cloud clone storage has too many items with this name. Choose another rig name.");
 }
 
+function availableTone3000ModelName(model: ToneModel, entries: string[]): string {
+  const base = tone3000ModelName(model);
+  const used = new Set(entries.map((entry) => deviceFilename(entry).trim().toLocaleLowerCase()));
+  for (let copy = 1; copy <= 10_000; copy++) {
+    const suffix = copy === 1 ? "" : ` ${copy}`;
+    const candidate = `${base.slice(0, 200 - suffix.length).trimEnd()}${suffix}`;
+    if (!used.has(tone3000ModelFilename(model, candidate).toLocaleLowerCase())) return candidate;
+  }
+  throw new Error("NAM storage has too many models with this name. Rename an existing model on the HeadRush before saving this rig.");
+}
+
 async function waitForCloudCloneFile(folder: string, downloadName: string): Promise<string> {
   for (const delay of AUDITION_SETTLE_DELAYS) {
     await auditionDelay(delay);
@@ -102,11 +113,15 @@ async function ensureDurableAuditionSource(
   if (audition.tone.source === "Tone3000") {
     if (!audition.model) throw new Error("The exact Tone3000 model used for this audition is no longer known. Restart the audition before saving.");
     if (!audition.captureFile) throw new Error("The active Tone3000 file is not attached to a verified Test Rig host. Refresh the Test Rig before saving.");
-    const filename = tone3000ModelFilename(audition.model);
-    await deviceApi.downloadTone(audition.tone, audition.model);
+    const existingFiles = await deviceApi.listDeviceFiles(TONE3000_DEVICE_FOLDER, "nam");
+    // A filename cannot prove model identity. Preserve previous downloads and
+    // rigs by storing this exact audition under an available name every time.
+    const downloadName = availableTone3000ModelName(audition.model, existingFiles);
+    const filename = tone3000ModelFilename(audition.model, downloadName);
+    await deviceApi.downloadTone(audition.tone, audition.model, downloadName);
     return bindAndVerifyDurableCapture(
       audition.captureFile,
-      `Neural Amp Modeler/Tone 3000/${filename}`,
+      `${TONE3000_DEVICE_FOLDER}/${filename}`,
       `Tone3000 model "${audition.model.name}"`,
     );
   }

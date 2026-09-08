@@ -34,7 +34,7 @@ const activeCapture = {
   value: "Neural Amp Modeler/Tone 3000 Demo/exact-active.nam",
 };
 
-const durableTone3000Path = "Neural Amp Modeler/Tone 3000/exact-active.nam";
+const durableTone3000Path = "Neural Amp Modeler/Tone 3000/Exact active NAM.nam";
 
 const saveOptions: AuditionRigSaveOptions = {
   name: "  Saved Audition  ",
@@ -132,6 +132,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     vi.restoreAllMocks();
     resetActiveAudition();
     vi.spyOn(deviceApi, "isNative").mockReturnValue(true);
+    vi.spyOn(deviceApi, "listDeviceFiles").mockResolvedValue([]);
     vi.spyOn(useAppStore.getState(), "syncActiveTestRig").mockResolvedValue();
   });
 
@@ -196,7 +197,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     expect(mocks.properties).toHaveBeenNthCalledWith(3, "/Evil/Engine/Patch/Rig");
     expect(mocks.properties).toHaveBeenNthCalledWith(4, "/Evil/API/Rigs");
     expect(mocks.canSaveNewRig).toHaveBeenCalledOnce();
-    expect(mocks.downloadTone).toHaveBeenCalledWith(activeTone, activeModel);
+    expect(mocks.downloadTone).toHaveBeenCalledWith(activeTone, activeModel, "Exact active NAM");
     expect(mocks.setProperties).toHaveBeenNthCalledWith(1, activeCapture.path, {
       LoadedClone: durableTone3000Path,
     });
@@ -218,6 +219,84 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     expect(result.warning).toBeUndefined();
     expect(mocks.startToneDemo).not.toHaveBeenCalled();
     expect(mocks.stopToneDemo).not.toHaveBeenCalled();
+    expectSessionPreserved();
+  });
+
+  it("downloads an extensionless native model name and binds the resulting .nam file before saving", async () => {
+    const mocks = mockSuccessfulRigSave();
+    mocks.downloadTone.mockRestore();
+    const callMethod = vi.spyOn(deviceApi, "callMethod").mockImplementation(async (_path, method, args = []) => {
+      if (method === "downloadModelToDevice") {
+        expect(args).toEqual([activeModel.remoteId, activeModel.url, "Exact active NAM"]);
+        // The device controls the suffix; passing a .nam filename here would
+        // create a different file from the one the rig's host is loading.
+        expect(`${args[2]}.nam`).toBe("Exact active NAM.nam");
+        return { status: 200, body: { methodReturnValue: JSON.stringify({ success: true }) } };
+      }
+      throw new Error(`Unexpected device method: ${method}`);
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).resolves.toMatchObject({ rigId: "saved-rig" });
+
+    expect(callMethod).toHaveBeenCalledOnce();
+    expect(mocks.setProperties).toHaveBeenCalledWith(activeCapture.path, { LoadedClone: durableTone3000Path });
+    expect(mocks.saveRigAs).toHaveBeenCalledWith("Saved Audition");
+    expect(callMethod.mock.invocationCallOrder[0]).toBeLessThan(mocks.saveRigAs.mock.invocationCallOrder[0]);
+  });
+
+  it("preserves existing NAM files from other models with the same display name", async () => {
+    const mocks = mockSuccessfulRigSave();
+    const storedModels = new Map([["Exact active NAM.nam", 800], ["EXACT ACTIVE NAM 2.NAM", 801]]);
+    let loadedFile = activeCapture.value;
+    vi.mocked(deviceApi.listDeviceFiles).mockImplementation(async () => [...storedModels.keys()].map((name) => `Neural Amp Modeler/Tone 3000/${name}`));
+    mocks.downloadTone.mockImplementation(async (_tone, model, name) => { storedModels.set(`${name}.nam`, model!.remoteId); });
+    const originalRead = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => path === activeCapture.path ? { LoadedClone: loadedFile, FileMissing: "" } : originalRead(path));
+    mocks.setProperties.mockImplementation(async (path, properties) => {
+      if (path === activeCapture.path) loadedFile = String(properties.LoadedClone);
+      return { status: 200, body: {} };
+    });
+
+    await useAppStore.getState().saveAuditionRig(saveOptions);
+
+    expect(storedModels).toEqual(new Map([["Exact active NAM.nam", 800], ["EXACT ACTIVE NAM 2.NAM", 801], ["Exact active NAM 3.nam", activeModel.remoteId]]));
+    expect(mocks.downloadTone).toHaveBeenCalledWith(activeTone, activeModel, "Exact active NAM 3");
+    expect(mocks.setProperties).toHaveBeenCalledWith(activeCapture.path, { LoadedClone: "Neural Amp Modeler/Tone 3000/Exact active NAM 3.nam" });
+    expect(mocks.saveRigAs).toHaveBeenCalledWith("Saved Audition");
+  });
+
+  it("uses another available source name when saving the same audition again", async () => {
+    const mocks = mockSuccessfulRigSave();
+    const storedFiles: string[] = [];
+    let loadedFile = activeCapture.value;
+    vi.mocked(deviceApi.listDeviceFiles).mockImplementation(async () => [...storedFiles]);
+    mocks.downloadTone.mockImplementation(async (_tone, _model, name) => { storedFiles.push(`${name}.nam`); });
+    const originalRead = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => path === activeCapture.path ? { LoadedClone: loadedFile, FileMissing: "" } : originalRead(path));
+    mocks.setProperties.mockImplementation(async (path, properties) => {
+      if (path === activeCapture.path) loadedFile = String(properties.LoadedClone);
+      return { status: 200, body: {} };
+    });
+
+    await useAppStore.getState().saveAuditionRig(saveOptions);
+    await useAppStore.getState().saveAuditionRig({ ...saveOptions, programChange: -1, overwrite: true });
+
+    expect(storedFiles).toEqual(["Exact active NAM.nam", "Exact active NAM 2.nam"]);
+    expect(mocks.downloadTone).toHaveBeenNthCalledWith(1, activeTone, activeModel, "Exact active NAM");
+    expect(mocks.downloadTone).toHaveBeenNthCalledWith(2, activeTone, activeModel, "Exact active NAM 2");
+    expect(mocks.setProperties).toHaveBeenCalledWith(activeCapture.path, { LoadedClone: "Neural Amp Modeler/Tone 3000/Exact active NAM 2.nam" });
+    expect(mocks.saveRigAs).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not download or save when existing NAM filenames cannot be checked", async () => {
+    const mocks = mockSuccessfulRigSave();
+    vi.mocked(deviceApi.listDeviceFiles).mockRejectedValue(new Error("Device file listing failed"));
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow("Device file listing failed");
+
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.setProperties).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
     expectSessionPreserved();
   });
 
@@ -696,7 +775,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
 
     await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow("device file write rejected");
 
-    expect(downloadTone).toHaveBeenCalledWith(activeTone, activeModel);
+    expect(downloadTone).toHaveBeenCalledWith(activeTone, activeModel, "Exact active NAM");
     expect(setProperties).not.toHaveBeenCalled();
     expect(saveRigAs).not.toHaveBeenCalled();
     expectSessionPreserved();

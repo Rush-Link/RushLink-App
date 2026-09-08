@@ -15,6 +15,7 @@ import { deviceApi, type Tone3000SearchFilters } from "../services/device-api";
 import { deviceErrorDetail } from "../services/device-errors";
 import { TestRigEditorDialog, TonePilotTestRigStudio } from "./tonepilot-test-rigs";
 import { TonePilotSaveRigDialog } from "./tonepilot-save-rig-dialog";
+import { TonePilotSaveNamDialog } from "./tonepilot-save-nam-dialog";
 import { ParameterControl } from "../components/system/controls";
 import "../styles/live-tone.css";
 import "../styles/tonepilot-upgrades.css";
@@ -68,6 +69,8 @@ export function ToneLabPage() {
   const [customize, setCustomize] = useState(false); const [downloadBusy, setDownloadBusy] = useState(false);
   const [saveRigOpen, setSaveRigOpen] = useState(false); const [transportBusy, setTransportBusy] = useState<"stop" | "refresh" | null>(null);
   const [saveRigResult, setSaveRigResult] = useState<AuditionRigSaveResult | null>(null);
+  const [saveNamTarget, setSaveNamTarget] = useState<{ tone: CloudTone; model: ToneModel } | null>(null);
+  const [saveNamResult, setSaveNamResult] = useState<{ name: string; path: string; requiresSync?: boolean } | null>(null);
   const auditionButtonRef = useRef<HTMLButtonElement>(null); const refreshButtonRef = useRef<HTMLButtonElement>(null); const previousAuditionActive = useRef(false);
 
   const providerFilters = useMemo<Tone3000SearchFilters>(() => ({ architecture: architecture === "a1" || architecture === "custom" ? 1 : 2, calibrated: calibratedOnly, gear: tone3000GearsForCaptureTypes(selectedTypes, gears), sizes: architecture === "a1" || architecture === "custom" ? sizes : [], format: formats[0] ?? "", tags: tag.split(",").map((item) => item.trim()).filter(Boolean), makes: make.split(",").map((item) => item.trim()).filter(Boolean), creators: author.split(",").map((item) => item.trim()).filter(Boolean), verified: verifiedOnly, sortMode: sort === "newest" ? 1 : sort === "oldest" ? 2 : sort === "downloads-all-time" ? 3 : 0 }), [architecture, calibratedOnly, selectedTypes, gears, sizes, formats, tag, make, author, verifiedOnly, sort]);
@@ -86,6 +89,7 @@ export function ToneLabPage() {
   useEffect(() => { if (store.selectedToneId && !sourceTones.some((tone) => tone.id === store.selectedToneId)) store.selectTone(null); }, [source, sourceTones, store.selectedToneId]);
   useEffect(() => { if (selected?.source === "Tone3000") void useAppStore.getState().loadToneModels(selected); }, [selected?.id]);
   useEffect(() => setSaveRigResult(null), [selected?.id]);
+  useEffect(() => setSaveNamResult(null), [selected?.id]);
   useEffect(() => { if (!selectedToneIsActive) setSaveRigOpen(false); }, [selectedToneIsActive]);
   useEffect(() => {
     if (previousAuditionActive.current === selectedToneIsActive) return;
@@ -129,6 +133,7 @@ export function ToneLabPage() {
         <span><strong>Saved “{saveRigResult.name}” to Rigs</strong><small>{saveRigResult.warning ?? (saveRigResult.setlistName ? `Also added to ${saveRigResult.setlistName}.` : "The live audition is still active.")}</small></span>
         <IconButton label="Dismiss save result" onClick={() => setSaveRigResult(null)}><X size={15}/></IconButton>
       </div>}
+      {saveNamResult && <div className="tp-save-rig-result tp-save-nam-result" role="status"><Check size={17}/><span><strong>{saveNamResult.requiresSync ? "Copied" : "Saved"} “{saveNamResult.name}” to the NAM library</strong><small>{saveNamResult.path}</small>{saveNamResult.requiresSync && <small>Eject the HeadRush drive, then tap Sync on the pedal to finish importing.</small>}</span><IconButton label="Dismiss NAM save result" onClick={() => setSaveNamResult(null)}><X size={15}/></IconButton></div>}
       <div className="audition-actions" aria-label="Tone audition actions">
         {showNamOutput && captureBlock && namOutput && <section className="audition-nam-output" aria-label="Quick NAM output">
           <header><span><strong>NAM output</strong><small>Adjust the level leaving the auditioned model without opening Test Rig Studio.</small></span><Badge tone={store.auditioningToneId === selected.id ? "green" : "cyan"}>{store.auditioningToneId === selected.id ? "LIVE ON HEADRUSH" : "SAVED IN TEST RIG"}</Badge></header>
@@ -143,11 +148,12 @@ export function ToneLabPage() {
           </> : <Button ref={auditionButtonRef} disabled={!auditionReady} loading={store.auditionBusy} variant="primary" className="audition-action audition-action--primary" onClick={() => void store.auditionTone(selected).catch(() => undefined)}><Play size={16}/> Audition on HeadRush</Button>}
         </div>
         <div className="audition-actions__secondary">
-          <Button className="audition-action audition-action--secondary" disabled={!modelReady} loading={downloadBusy} onClick={async () => { setDownloadBusy(true); try { await deviceApi.downloadTone(selected, selectedModel); store.addDiagnostic({ level: "success", source: "TonePilot", message: `Downloaded ${selected.title} to the device` }); } catch (error) { store.addDiagnostic({ level: "warning", source: "TonePilot", message: "Download failed", detail: deviceErrorDetail(error) }); } finally { setDownloadBusy(false); } }}><Download size={16}/> Download source</Button>
+          {selected.source === "Tone3000" ? <Button className="audition-action audition-action--secondary" disabled={!selectedModel || store.toneModelLoading || store.auditionBusy} onClick={() => { if (selectedModel) { setSaveNamResult(null); setSaveNamTarget({ tone: selected, model: selectedModel }); } }}><Download size={16}/> Save to device</Button> : <Button className="audition-action audition-action--secondary" disabled={!modelReady} loading={downloadBusy} onClick={async () => { setDownloadBusy(true); try { await deviceApi.downloadTone(selected, selectedModel); store.addDiagnostic({ level: "success", source: "TonePilot", message: `Downloaded ${selected.title} to the device` }); } catch (error) { store.addDiagnostic({ level: "warning", source: "TonePilot", message: "Download failed", detail: deviceErrorDetail(error) }); } finally { setDownloadBusy(false); } }}><Download size={16}/> Download source</Button>}
         </div>
-      </div><p className="audition-note"><Gauge size={14}/> Audition and Refresh use the pedal's temporary chain. Only Save to rigs writes it to the device library; Finish & return restores the rig active before testing.</p>
+      </div><p className="audition-note"><Gauge size={14}/> Audition and Refresh use the pedal's temporary chain. {selected.source === "Tone3000" ? "Save to device keeps the NAM file; Save to rigs keeps the full chain and levels." : "Save to rigs keeps the full chain and levels."} Finish & return restores the rig active before testing.</p>
       </> : <div className="audition-empty"><Sparkles size={29}/><h3>TonePilot is ready</h3><p>Search only when you want fresh provider results. Cached results and local filters remain instant.</p><Button onClick={() => setWorkspace("test-rigs")}><SlidersHorizontal size={14}/> Configure test rigs</Button></div>}</aside></div></>}
     <TestRigEditorDialog open={Boolean(testRig && customize)} onClose={() => setCustomize(false)}/>
     {selected && <TonePilotSaveRigDialog open={saveRigOpen && selectedToneIsActive} onClose={() => setSaveRigOpen(false)} onSaved={setSaveRigResult} toneTitle={selected.title}/>}
+    {saveNamTarget && <TonePilotSaveNamDialog tone={saveNamTarget.tone} model={saveNamTarget.model} onClose={() => setSaveNamTarget(null)} onSaved={setSaveNamResult} onSaveRig={() => { setSaveNamTarget(null); setSaveRigResult(null); setSaveRigOpen(true); }}/>}
   </div>;
 }

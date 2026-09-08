@@ -1,0 +1,11 @@
+.tp-nam-folder-picker{display:grid;gap:12px;min-width:0}
+.tp-nam-folder-picker__current{display:flex;align-items:center;gap:10px;padding:11px;border:1px solid var(--line);border-radius:9px;background:rgba(27,74,82,.12);color:var(--cyan)}
+.tp-nam-folder-picker__current>span{display:grid;gap:3px;min-width:0;flex:1}
+.tp-nam-folder-picker__current small{color:var(--muted);font-size:11px}
+.tp-nam-folder-picker__current output{color:var(--text);font-size:12px;overflow-wrap:anywhere}
+.tp-nam-folder-picker .device-asset-browser__list{min-height:150px;max-height:230px}
+.tp-nam-folder-picker .device-asset-browser__empty{min-height:130px;padding:12px}
+.tp-nam-folder-picker .device-asset-browser__list>button:disabled{opacity:.55;cursor:default;transform:none}
+.tp-nam-folder-picker__footer{display:flex;align-items:center;gap:7px}
+.tp-nam-folder-picker__footer>span{min-width:0;flex:1;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+@media(max-width:560px){.tp-nam-folder-picker__current{flex-wrap:wrap}.tp-nam-folder-picker__current>span{flex-basis:65%}.tp-nam-folder-picker__current>.ui-button{margin-left:28px}.tp-nam-folder-picker__footer{flex-wrap:wrap;justify-content:flex-end}.tp-nam-folder-picker__footer>span{flex-basis:100%}.tp-nam-folder-picker .device-asset-browser__list{grid-template-columns:minmax(0,1fr)}}

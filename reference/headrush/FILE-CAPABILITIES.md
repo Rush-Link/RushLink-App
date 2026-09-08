@@ -63,6 +63,25 @@ An earlier call with the save-as name placed in the wrong JSON field returned an
 empty identifier. Both the reflected index and `FileAccess.ls` confirmed that it
 created no file.
 
+## NAM destination verification
+
+The connected Flex Prime was checked again on 2026-09-08. Its NAM root contains
+`User`, `Tone 3000`, and `HeadRush Cloud`; `User` also contains nested folders.
+The Tone3000 object still exposes only `downloadModelToDevice(id, url, name)`.
+
+A download with `../User/<model name>` returned a `success: true` envelope but
+created no listed NAM in either `User` or `Tone 3000`. The same model ID and URL
+with a plain model name immediately created the expected `.nam` in `Tone 3000`.
+The active NAM selection remained unchanged. A success envelope alone therefore
+does not establish that a requested custom folder was used.
+
+RushLink supports other NAM destinations through USB Transfer: download and verify
+the source in `Tone 3000`, then copy it into an existing folder under the mounted
+`Neural Amp Modeler` directory selected by the user. The native copy command is
+restricted to that dialog-authorized NAM directory, refuses to overwrite files,
+and keeps the original. The user must eject the drive and tap Sync on HeadRush
+after copying. This does not add a general-purpose network file-write route.
+
 ## Read boundary
 
 `FileAccess.ls` enumerates a real audio file beneath `Practice Tool`, but the

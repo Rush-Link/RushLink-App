@@ -61,12 +61,28 @@ export function normalizeDeviceFilePath(path: string): string {
   return segments.join("/");
 }
 
-export function tone3000ModelFilename(model: { remoteId: number; name: string; url: string; metadata?: Record<string, string | number | boolean> }): string {
+export const TONE3000_DEVICE_FOLDER = "Neural Amp Modeler/Tone 3000";
+
+type Tone3000DownloadModel = { remoteId: number; name: string; url: string; metadata?: Record<string, string | number | boolean> };
+
+export function tone3000ModelName(model: Tone3000DownloadModel, downloadName = ""): string {
   const explicit = [model.metadata?.filename, model.metadata?.file_name, model.metadata?.fileName].find((value) => typeof value === "string" && value.trim());
   let urlName = "";
   try { urlName = decodeURIComponent(new URL(model.url).pathname.split("/").filter(Boolean).at(-1) ?? ""); } catch { /* A provider-relative URL can still use its model name. */ }
-  const source = String(explicit ?? (urlName || model.name || String(model.remoteId))).replace(/[<>:"/\\|?*]/g, "").trim() || String(model.remoteId);
-  return /\.nam$/i.test(source) ? source : `${source}.nam`;
+  // The deployed HeadRush editor sends a model name, not a filename or path.
+  // The device supplies the fixed Tone 3000 folder and the .nam extension.
+  const sanitize = (value: string) => value.replace(/[<>:"/\\|?*\u0000-\u001f\u007f]/g, "").trim().replace(/(?:\.nam)+$/i, "").replace(/[. ]+$/g, "").slice(0, 200).trimEnd();
+  if (downloadName) return sanitize(downloadName);
+  for (const value of [model.name, explicit, urlName, String(model.remoteId)]) {
+    const name = sanitize(String(value ?? ""));
+    if (name) return name;
+  }
+  return "";
+}
+
+export function tone3000ModelFilename(model: Tone3000DownloadModel, downloadName = ""): string {
+  const name = tone3000ModelName(model, downloadName);
+  return name ? `${name}.nam` : "";
 }
 
 function uniqueDeviceNames(names: string[]): string[] {
@@ -212,8 +228,14 @@ export const deviceApi = {
 
   async listDeviceFiles(path = "", kind: DeviceFileKind | number = "folders"): Promise<string[]> {
     const fileType = typeof kind === "number" ? kind : DEVICE_FILE_KIND[kind];
-    const result = reflectedReturn(await this.callMethod("/Evil/API/FileAccess", "ls", [normalizeDeviceFilePath(path), fileType]));
-    return Array.isArray(result) ? uniqueDeviceNames(result.map(String)) : [];
+    const response = await this.callMethod("/Evil/API/FileAccess", "ls", [normalizeDeviceFilePath(path), fileType]);
+    const action = "Listing device files";
+    const result = assertMethodResponse(response, action);
+    if (!native() && result && typeof result === "object" && "simulated" in result && result.simulated === true) return [];
+    if (!Array.isArray(result) || result.some((entry) => typeof entry !== "string")) {
+      throw invalidDeviceResponse(action, "a list of filenames", result);
+    }
+    return uniqueDeviceNames(result);
   },
 
   async listDeviceDirectory(path = "", kind: DeviceFileKind = "all"): Promise<DeviceDirectoryListing> {
@@ -379,13 +401,16 @@ export const deviceApi = {
 
   async downloadTone(
     tone: { source: string; remoteId?: string | number; remoteKind?: string },
-    model?: { remoteId: number; name: string; url: string; metadata?: Record<string, string | number | boolean> },
+    model?: Tone3000DownloadModel,
     downloadName = "",
   ): Promise<void> {
     if (tone.source === "Tone3000") {
       if (!model) throw new Error("Choose a compatible Tone3000 model first.");
+      if (!Number.isInteger(model.remoteId) || model.remoteId <= 0 || !model.url.trim()) throw new Error("The selected Tone3000 model has no usable download identifier or URL. Refresh its models and try again.");
+      const modelName = tone3000ModelName(model, downloadName);
+      if (!modelName) throw new Error("Enter a NAM model name.");
       assertTone3000Envelope(
-        await this.callMethod("/Evil/API/Tone3000", "downloadModelToDevice", [model.remoteId, model.url, tone3000ModelFilename(model)]),
+        await this.callMethod("/Evil/API/Tone3000", "downloadModelToDevice", [model.remoteId, model.url, modelName]),
         "Tone3000 model download",
         true,
       );

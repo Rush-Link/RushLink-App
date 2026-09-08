@@ -9,7 +9,7 @@ const tauri = vi.hoisted(() => ({
 vi.mock("@tauri-apps/api/core", () => ({ invoke: tauri.invoke, isTauri: tauri.isTauri }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: tauri.listen }));
 
-import { DEFAULT_TONE3000_FILTERS, deviceApi, normalizeDeviceFilePath, tone3000ModelFilename } from "./device-api";
+import { DEFAULT_TONE3000_FILTERS, deviceApi, normalizeDeviceFilePath, tone3000ModelFilename, tone3000ModelName } from "./device-api";
 import { DeviceError } from "./device-errors";
 import type { LiveButton } from "../domain/types";
 
@@ -35,6 +35,7 @@ describe("deviceApi browser adapter", () => {
     await expect(deviceApi.setProperties("/x", { Enabled: true })).resolves.toMatchObject({ status: 200, body: { Enabled: true, simulated: true } });
     await expect(deviceApi.callMethod("/x", "run", [1])).resolves.toMatchObject({ body: { method: "run", arguments: [1] } });
     await expect(deviceApi.rawRequest("POST", "/api", { ok: true })).resolves.toMatchObject({ body: { route: "/api", method: "POST" } });
+    await expect(deviceApi.listDeviceFiles("Neural Amp Modeler", "nam")).resolves.toEqual([]);
     await expect(deviceApi.executeLiveAction(button("custom"))).resolves.toMatchObject({ body: { simulated: true } });
     await expect(deviceApi.startEvents()).resolves.toBeUndefined();
     const unlisten = await deviceApi.onDeviceEvent(vi.fn());
@@ -74,7 +75,7 @@ describe("deviceApi browser adapter", () => {
     call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: '["A","B"]' } });
     await expect(deviceApi.listDeviceFiles("/Rigs", "rig")).resolves.toEqual(["A", "B"]);
     expect(call).toHaveBeenLastCalledWith("/Evil/API/FileAccess", "ls", ["Rigs", 4]);
-    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: "not-json" } });
+    call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: "[]" } });
     await expect(deviceApi.listDeviceFiles("", 9)).resolves.toEqual([]);
     call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue: '["Clean",4]' } });
     await expect(deviceApi.blockPresets("Amp")).resolves.toEqual(["Clean", "4"]);
@@ -108,6 +109,18 @@ describe("deviceApi browser adapter", () => {
       ["/Evil/API/FileAccess", "ls", ["Neural Amp Modeler/User", 9]],
     ]);
     expect(normalizeDeviceFilePath("/Neural Amp Modeler/../Rigs//User")).toBe("Rigs/User");
+  });
+
+  it("rejects unconfirmed file listings so a failed read cannot hide name collisions", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    for (const methodReturnValue of ["not-json", {}, undefined, false, ["Clean.nam", 4]]) {
+      call.mockResolvedValueOnce({ status: 200, body: { methodReturnValue } });
+      await expect(deviceApi.listDeviceFiles("Neural Amp Modeler/Tone 3000", "nam")).rejects.toMatchObject({
+        code: "invalid-response", action: "Listing device files",
+      });
+    }
+    call.mockResolvedValueOnce({ status: 503, body: { methodReturnValue: [] } });
+    await expect(deviceApi.listDeviceFiles("Neural Amp Modeler/Tone 3000", "nam")).rejects.toMatchObject({ code: "http", status: 503 });
   });
 
   it("delegates device helper operations using confirmed endpoints", async () => {
@@ -240,11 +253,41 @@ describe("deviceApi browser adapter", () => {
     await deviceApi.downloadTone({ source: "Tone3000" }, { remoteId: 9, name: "A2", url: "https://tone/model" });
     await deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "rig" });
     await deviceApi.downloadTone({ source: "HeadRush Cloud", remoteId: "clone", remoteKind: "clone" });
-    expect(call).toHaveBeenCalledWith("/Evil/API/Tone3000", "downloadModelToDevice", [9, "https://tone/model", "model.nam"]);
+    expect(call).toHaveBeenCalledWith("/Evil/API/Tone3000", "downloadModelToDevice", [9, "https://tone/model", "A2"]);
     expect(call).toHaveBeenCalledWith("/Evil/Cloud/Master", "downloadRig", ["rig", ""]);
     expect(call).toHaveBeenCalledWith("/Evil/Cloud/Master", "downloadClone", ["clone", ""]);
-    expect(tone3000ModelFilename({ remoteId: 9, name: "A2", url: "relative", metadata: { file_name: "Fortin/Nameless.nam" } })).toBe("FortinNameless.nam");
+    expect(tone3000ModelFilename({ remoteId: 9, name: "", url: "relative", metadata: { file_name: "Fortin/Nameless.nam" } })).toBe("FortinNameless.nam");
     expect(tone3000ModelFilename({ remoteId: 12, name: "Clean capture", url: "relative" })).toBe("Clean capture.nam");
+  });
+
+  it("sends the chosen NAM name without an extension and predicts the same device filename", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod").mockResolvedValue({ status: 200, body: { methodReturnValue: JSON.stringify({ success: true }) } });
+    const model = { remoteId: 9, name: "Clean capture", url: "https://tone.example/opaque-token?download=1" };
+
+    await deviceApi.downloadTone({ source: "Tone3000" }, model, "  My Clean.nam  ");
+
+    expect(call).toHaveBeenCalledOnce();
+    expect(call).toHaveBeenCalledWith("/Evil/API/Tone3000", "downloadModelToDevice", [9, model.url, "My Clean"]);
+    expect(tone3000ModelFilename(model, "  My Clean.nam  ")).toBe("My Clean.nam");
+    expect(tone3000ModelName(model)).toBe("Clean capture");
+    expect(tone3000ModelFilename(model)).toBe("Clean capture.nam");
+    expect(tone3000ModelFilename(model, "Rhythm.nam.NAM")).toBe("Rhythm.nam");
+    expect(tone3000ModelName(model, "A/B:C\\D?*<>|\u0000\u001f")).toBe("ABCD");
+    expect(tone3000ModelName(model, "N".repeat(240))).toHaveLength(200);
+  });
+
+  it("rejects unusable NAM download names and identities before calling the device", async () => {
+    const call = vi.spyOn(deviceApi, "callMethod");
+    const model = { remoteId: 9, name: "Clean capture", url: "https://tone.example/model.nam" };
+
+    for (const name of ["   ", "...", ".nam", "<>/\\?*"]) {
+      await expect(deviceApi.downloadTone({ source: "Tone3000" }, model, name)).rejects.toThrow("Enter a NAM model name");
+      expect(tone3000ModelFilename(model, name)).toBe("");
+    }
+    for (const invalid of [{ ...model, remoteId: 0 }, { ...model, remoteId: Number.NaN }, { ...model, url: " " }]) {
+      await expect(deviceApi.downloadTone({ source: "Tone3000" }, invalid)).rejects.toThrow("no usable download identifier or URL");
+    }
+    expect(call).not.toHaveBeenCalled();
   });
 
   it("rejects semantic provider download failures instead of reporting a durable file", async () => {
