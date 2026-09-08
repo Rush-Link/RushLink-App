@@ -57,14 +57,21 @@ jobs:
         env:
           APPLE_SIGNING_IDENTITY: '-'
         run: npm run tauri -- build --ci --bundles dmg --target ${{ matrix.target }} -- --locked
-      - name: Verify app signature and architecture
+      - name: Verify packaged app and DMG integrity
         shell: bash
         env:
           RELEASE_TARGET: ${{ matrix.target }}
           RELEASE_ARCH: ${{ matrix.arch }}
         run: |
           set -euo pipefail
-          app="src-tauri/target/$RELEASE_TARGET/release/bundle/macos/RushLink.app"
+          shopt -s nullglob
+          dmgs=(src-tauri/target/"$RELEASE_TARGET"/release/bundle/dmg/*.dmg)
+          test "${#dmgs[@]}" -eq 1
+          hdiutil verify "${dmgs[0]}"
+          mount_dir="$(mktemp -d)"
+          trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" 2>/dev/null || true' EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmgs[0]}"
+          app="$mount_dir/RushLink.app"
           codesign --verify --deep --strict "$app"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           executable="$app/Contents/MacOS/$executable_name"
@@ -73,15 +80,9 @@ jobs:
           expected_version="$(node -p "require('./package.json').version")"
           actual_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"
           test "$actual_version" = "$expected_version"
-      - name: Verify DMG integrity
-        shell: bash
-        env:
-          RELEASE_TARGET: ${{ matrix.target }}
-        run: |
-          set -euo pipefail
-          for dmg in src-tauri/target/"$RELEASE_TARGET"/release/bundle/dmg/*.dmg; do
-            hdiutil verify "$dmg"
-          done
+          hdiutil detach "$mount_dir"
+          rmdir "$mount_dir"
+          trap - EXIT
       - name: Stage DMG and checksum only
         shell: bash
         env:
