@@ -8,4 +8,8 @@
 .tp-nam-folder-picker .device-asset-browser__list>button:disabled{opacity:.55;cursor:default;transform:none}
 .tp-nam-folder-picker__footer{display:flex;align-items:center;gap:7px}
 .tp-nam-folder-picker__footer>span{min-width:0;flex:1;color:var(--muted);font-size:11px;overflow-wrap:anywhere}
+/* USB Transfer can suspend Wi-Fi. The Radix dialog is portaled outside the
+   inert workspace; only this pending/copy-complete flow suppresses the gate. */
+body:has(.dialog [data-nam-usb-workflow]) .device-connect-gate{display:none}
+.dialog:has([data-nam-usb-workflow]){z-index:301}
 @media(max-width:560px){.tp-nam-folder-picker__current{flex-wrap:wrap}.tp-nam-folder-picker__current>span{flex-basis:65%}.tp-nam-folder-picker__current>.ui-button{margin-left:28px}.tp-nam-folder-picker__footer{flex-wrap:wrap;justify-content:flex-end}.tp-nam-folder-picker__footer>span{flex-basis:100%}.tp-nam-folder-picker .device-asset-browser__list{grid-template-columns:minmax(0,1fr)}}

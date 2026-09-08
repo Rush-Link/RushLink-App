@@ -133,6 +133,11 @@ describe("TonePilot audition workspace UI", () => {
     expect(transfer).not.toHaveBeenCalled();
     expect(dialog).toBeInTheDocument();
     fireEvent.click(finish);
+    const completion = await screen.findByRole("dialog", { name: "NAM copied to HeadRush" });
+    expect(within(completion).getByLabelText("Copied NAM location")).toHaveTextContent("Neural Amp Modeler/User/My Lead.nam");
+    expect(within(completion).getByText(/Safely eject the HeadRush drive/)).toBeInTheDocument();
+    expect(within(completion).getByText(/on HeadRush and wait for the import to finish/)).toBeInTheDocument();
+    fireEvent.click(within(completion).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(download).toHaveBeenCalledWith(tone, model, "My Lead");
     expect(transfer).toHaveBeenCalledWith("E:/Neural Amp Modeler", "Neural Amp Modeler/Tone 3000/My Lead.nam", "Neural Amp Modeler/User/My Lead.nam");
@@ -177,6 +182,9 @@ describe("TonePilot audition workspace UI", () => {
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("already exists");
     fireEvent.change(within(dialog).getByLabelText("Model name"), { target: { value: "USB Lead" } });
     fireEvent.click(finish);
+    const completion = await screen.findByRole("dialog", { name: "NAM copied to HeadRush" });
+    expect(within(completion).getByLabelText("Copied NAM location")).toHaveTextContent("Neural Amp Modeler/User/USB Lead.nam");
+    fireEvent.click(within(completion).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(transfer).toHaveBeenLastCalledWith("E:/Neural Amp Modeler", "Neural Amp Modeler/Tone 3000/QA A2.nam", "Neural Amp Modeler/User/USB Lead.nam");
     expect(download).toHaveBeenCalledOnce();

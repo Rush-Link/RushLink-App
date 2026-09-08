@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { connectBrowserDemo } from "./support/connect-browser-demo";
 
-test("NAM save popup shows the native destination and stays usable on desktop and phone", async ({ page }, testInfo) => {
+test("NAM save stays usable through USB Wi-Fi loss and retains eject/Sync guidance", async ({ page }, testInfo) => {
   await page.goto("/?page=tone-cloud");
   await connectBrowserDemo(page);
   await page.evaluate(async () => {
@@ -57,9 +57,33 @@ test("NAM save popup shows the native destination and stays usable on desktop an
   const transfer = dialog.getByRole("button", { name: "Choose HeadRush NAM folder", exact: true });
   await expect(transfer).toBeInViewport();
   await expect(dialog.getByRole("region", { name: "Finish NAM save with USB Transfer" })).toBeVisible();
+  await page.evaluate(async () => {
+    // @ts-expect-error Vite serves source modules to the development browser test.
+    const { useAppStore } = await import("/src/stores/app-store.ts");
+    const device = useAppStore.getState().device;
+    useAppStore.setState({ device: { ...device, status: "error" }, connectionError: "Wi-Fi is unavailable during USB Transfer" });
+  });
+  const connectionGate = page.locator(".device-connect-gate");
+  await expect(connectionGate).toBeAttached();
+  await expect(connectionGate).toBeHidden();
+  await expect(page.locator(".app-workspace")).toHaveAttribute("inert", "");
+  await expect(page.locator(".sidebar")).toHaveAttribute("inert", "");
+  expect(await dialog.evaluate((element) => element.closest("[inert]") === null)).toBe(true);
+  await expect(transfer).toBeEnabled();
   await page.screenshot({ path: testInfo.outputPath("nam-usb-transfer-390.png") });
   await transfer.click();
   await expect(dialog).not.toBeVisible();
-  await expect(page.locator(".tp-save-nam-result")).toContainText("Neural Amp Modeler/User/Lead/My Lead.nam");
-  await expect(page.locator(".tp-save-nam-result")).toContainText("tap Sync on the pedal");
+  const completion = page.getByRole("dialog", { name: "NAM copied to HeadRush" });
+  await expect(completion).toBeVisible();
+  await expect(completion.getByLabel("Copied NAM location")).toHaveText("Neural Amp Modeler/User/Lead/My Lead.nam");
+  await expect(completion.getByText("Safely eject the HeadRush drive from this computer.")).toBeVisible();
+  await expect(completion.getByText("Tap Sync on HeadRush and wait for the import to finish.")).toBeVisible();
+  await expect(connectionGate).toBeHidden();
+  await expect(page.locator(".app-workspace")).toHaveAttribute("inert", "");
+  await expect(completion.getByRole("button", { name: "Done" })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("nam-usb-complete-offline-390.png") });
+  await completion.getByRole("button", { name: "Done" }).click();
+  await expect(completion).not.toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Connect to your device" })).toBeVisible();
+  await expect(page.locator(".app-workspace")).toHaveAttribute("inert", "");
 });

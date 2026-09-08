@@ -25,6 +25,7 @@ export function TonePilotSaveNamDialog({ tone, model, onClose, onSaved, onSaveRi
   const [name, setName] = useState(() => tone3000ModelName(model));
   const [folder, setFolder] = useState(NAM_USER_FOLDER);
   const [transfer, setTransfer] = useState<PreparedNamFolderSave | null>(null);
+  const [completed, setCompleted] = useState<{ name: string; path: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,9 +62,10 @@ export function TonePilotSaveNamDialog({ tone, model, onClose, onSaved, onSaveRi
         result = prepared;
       }
       useAppStore.setState((state) => ({ tones: state.tones.map((item) => item.id === tone.id ? { ...item, downloaded: true } : item) }));
-      store.addDiagnostic({ level: "success", source: "TonePilot", message: `Saved ${result.name} to the device`, detail: result.path });
+      store.addDiagnostic({ level: "success", source: "TonePilot", message: `${result.requiresSync ? "Copied" : "Saved"} ${result.name} to the device`, detail: result.path });
       onSaved(result);
-      onClose();
+      if (result.requiresSync) setCompleted(result);
+      else onClose();
     } catch (saveError) {
       setError(deviceErrorMessage(saveError));
       store.addDiagnostic({ level: "warning", source: "TonePilot", message: "NAM save failed", detail: deviceErrorDetail(saveError) });
@@ -73,10 +75,20 @@ export function TonePilotSaveNamDialog({ tone, model, onClose, onSaved, onSaveRi
     }
   };
 
+  if (completed) return <Dialog open onClose={close} title="NAM copied to HeadRush" width="600px"
+    description="Finish importing the model on your pedal."
+    footer={<Button autoFocus variant="primary" onClick={close}>Done</Button>}>
+    <section className="tp-save-rig-dialog tp-save-nam-usb" data-nam-usb-workflow aria-label="Finish importing the copied NAM">
+      <div className="tp-save-nam-destination"><FolderOpen size={19}/><div><strong>{completed.name}</strong><output aria-label="Copied NAM location">{completed.path}</output></div></div>
+      <ol><li>Safely eject the HeadRush drive from this computer.</li><li>Tap <b>Sync</b> on HeadRush and wait for the import to finish.</li></ol>
+      <p>The NAM file has been copied. Keep HeadRush connected and powered on until Sync finishes.</p>
+    </section>
+  </Dialog>;
+
   return <Dialog open onClose={close} title="Save NAM to device" width="600px"
     description="Choose how to keep this model on your HeadRush."
     footer={<><Button disabled={busy} onClick={close}>{transfer ? "Close" : "Cancel"}</Button><Button form={formId} type="submit" variant="primary" loading={busy} disabled={!canSubmit}>{transfer ? <><FolderOpen size={15}/> Choose HeadRush NAM folder</> : mode === "model" ? <><Download size={15}/> Save NAM</> : <><Guitar size={15}/> Continue to rig options</>}</Button></>}>
-    <form id={formId} className="tp-save-rig-dialog tp-save-nam-dialog" onSubmit={submit}>
+    <form id={formId} className="tp-save-rig-dialog tp-save-nam-dialog" data-nam-usb-workflow={transfer ? "" : undefined} onSubmit={submit}>
       <div className="tp-save-rig-source"><span><Download size={19}/></span><div><small>SELECTED NAM MODEL</small><strong>{model.name}</strong><p>{tone.title} · {model.architecture}</p></div></div>
       <section className="tp-save-rig-section">
         <label className="tp-save-rig-field" htmlFor={`${formId}-mode`}><span>Save as</span>
