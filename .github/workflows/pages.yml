@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   deploy:
+    # The public website repository owns Pages; proprietary app sources stay private.
+    if: github.event.repository.private == false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
