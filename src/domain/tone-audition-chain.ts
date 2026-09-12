@@ -127,7 +127,7 @@ export function buildTestRigDevicePlan(input: {
   const clearSlots = current.flatMap((id, slot) => id && !occupied.has(slot) ? [slot] : []);
   const hasSurroundingFx = assignments.some((assignment) => !assignment.capture);
   const complete = skipped.length === 0;
-  const applied = hasSurroundingFx && complete;
+  const applied = assignments.length > 0 && complete;
   const suffix = skipped.length ? ` Skipped unsupported blocks: ${skipped.join(", ")}.` : "";
   return {
     assignments,
@@ -136,7 +136,7 @@ export function buildTestRigDevicePlan(input: {
     applied,
     complete,
     skippedBlocks: skipped,
-    message: applied ? `Applied ${assignments.filter((assignment) => !assignment.capture).length} Test Rig FX in their saved positions around slot ${captureBlock.slot + 1}.` : complete ? "No surrounding Test Rig FX were configured." : `The complete Test Rig could not be resolved.${suffix}`,
+    message: applied ? hasSurroundingFx ? `Applied ${assignments.filter((assignment) => !assignment.capture).length} Test Rig FX in their saved positions around slot ${captureBlock.slot + 1}.` : `Applied the Test Rig capture and its settings in slot ${captureBlock.slot + 1}.` : `The complete Test Rig could not be resolved.${suffix}`,
   };
 }
 

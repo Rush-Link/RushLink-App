@@ -61,3 +61,12 @@
 @media (prefers-reduced-motion: reduce) {
   .skeleton { animation: none; }
 }
+
+.workspace-panel-toggle.ui-button,
+.workspace-panel-toggle.icon-button {
+  min-height: 40px;
+  min-width: 40px;
+  flex-shrink: 0;
+}
+
+.workspace-panel-toggle svg { flex-shrink: 0; }

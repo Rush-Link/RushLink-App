@@ -3,7 +3,59 @@
   --stage-edge: #273243;
 }
 
+/* Performance fullscreen: only the pads and a compact escape/lock strip. */
+.app .stagehand-v2.stagehand--fullscreen {
+  display: flex; flex-direction: column; height: 100dvh; min-height: 0;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overflow: hidden;
+}
+.app .stagehand--fullscreen .live-toolbar { flex: none; min-height: 44px; height: 44px; margin: 0; padding: 0 6px; justify-content: flex-end; border-bottom: 1px solid var(--stage-edge); }
+.app .stagehand--fullscreen .live-toolbar__actions { flex-wrap: nowrap; gap: 4px; }
+.app .stagehand--fullscreen .stagehand-screen-control { height: 44px; min-height: 44px; padding-block: 0; border: 0; background: transparent; font-size: 12px; }
+.app .stagehand--fullscreen .live-toolbar > div:first-child,
+.app .stagehand--fullscreen .live-toolbar__actions > :not(.stagehand-screen-control),
+.app .stagehand--fullscreen > .stagehand-stage-bar,
+.app .stagehand--fullscreen > .performance-strip,
+.app .stagehand--fullscreen > .stagehand-move-banner,
+.app .stagehand--fullscreen .live-hint,
+.app .stagehand--fullscreen .live-inspector,
+.app .stagehand--fullscreen .live-pad__meta,
+.app .stagehand--fullscreen .live-pad__grip,
+.app .stagehand--fullscreen .live-pad__state,
+.app .stagehand--fullscreen .live-pad__footprint,
+.app .stagehand--fullscreen .live-pad > small,
+.app .stagehand--fullscreen .live-pad--empty > svg,
+.app .stagehand--fullscreen .live-pad--empty > span { display: none; }
+.app .stagehand--fullscreen .stagehand-screen-notice,
+.app .stagehand--fullscreen .stagehand-action-feedback { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.app .stagehand--fullscreen .live-workspace { flex: 1; min-height: 0; width: 100%; grid-template-columns: minmax(0, 1fr); gap: 0; }
+.app .stagehand--fullscreen .live-board-wrap { display: flex; min-height: 0; min-width: 0; overflow: hidden; }
+.app .stagehand-v2.stagehand--fullscreen .live-board.stagehand-grid { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 6px; border: 0; border-radius: 0; overflow: hidden; background: transparent; grid-template-rows: repeat(var(--stage-rows, 3), minmax(0, 1fr)); column-gap: clamp(4px, var(--stage-column-gap, 10px), 12px); row-gap: clamp(4px, var(--stage-row-gap, 10px), 12px); }
+.app .stagehand--fullscreen .live-pad__slot,
+.app .stagehand--fullscreen .live-pad--empty em { left: auto; right: 8px; top: 8px; bottom: auto; font-size: 11px; line-height: 1; }
+
+/* Full screen keeps portals in the document, with only the stage using the shell. */
+.app:has(.stagehand--fullscreen) { grid-template-columns: minmax(0, 1fr); height: 100dvh; padding: 0; }
+.app:has(.stagehand--fullscreen) > .sidebar,
+.app:has(.stagehand--fullscreen) > .sidebar-scrim,
+.app:has(.stagehand--fullscreen) > .main > .topbar,
+.app:has(.stagehand--fullscreen) > .main > .statusbar { display: none; }
+.app:has(.stagehand--fullscreen) > .main { grid-column: 1 / -1; grid-template-rows: minmax(0, 1fr); min-width: 0; }
+.app:has(.stagehand--fullscreen) .app-content { padding: 0; }
+.app .stagehand--fullscreen {
+  min-height: 100%;
+  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+.stagehand--fullscreen .live-toolbar { position: sticky; top: 0; z-index: 3; padding: 8px 0; background: var(--stage-panel); }
+.stagehand-v2 .stagehand-screen-notice { margin: 0 0 12px; color: var(--text-secondary); font-size: 13px; }
+.stagehand--fullscreen.live-page--performance { display: flex; flex-direction: column; min-height: 100dvh; }
+.stagehand--fullscreen.live-page--performance .live-workspace { flex: 1; }
+.stagehand--fullscreen.live-page--performance .live-board-wrap { display: flex; flex-direction: column; }
+.stagehand--fullscreen.live-page--performance .live-board.stagehand-grid { flex: 1; grid-template-rows: repeat(var(--stage-rows, 3), minmax(128px, 1fr)); }
+
 .stagehand-v2 .live-workspace { grid-template-columns: minmax(520px, 1fr) minmax(330px, 370px); gap: 15px; }
+.stagehand-v2 .live-workspace--controls-collapsed { grid-template-columns: minmax(0, 1fr); }
+.stagehand-v2 .live-inspector[hidden] { display: none; }
 .live-page--performance.stagehand-v2 .live-workspace { width: 100%; grid-template-columns: minmax(0, 1fr); }
 .live-page--performance.stagehand-v2 .live-board-wrap,
 .live-page--performance.stagehand-v2 .live-board { width: 100%; }
@@ -350,6 +402,7 @@
   .stagehand-v2 .live-toolbar__actions { flex-wrap: wrap; justify-content: flex-end; }
   .stagehand-v2 .stagehand-rig-strip { grid-template-columns: minmax(0, 1fr) auto; }
   .stagehand-rig-status { display: none; }
+  .stagehand-v2 .live-board-wrap { overflow-x: auto; }
   .stagehand-v2 .live-board { overflow-x: auto; }
   .stagehand-v2 .stagehand-grid { min-width: max(100%, calc(var(--stage-columns, 4) * 96px)); }
   .stagehand-field-pair { grid-template-columns: 1fr; }

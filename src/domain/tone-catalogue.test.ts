@@ -8,7 +8,7 @@ const tone = (id: string, patch: Partial<CloudTone> = {}): CloudTone => ({
 });
 const filters: ToneCatalogueFilters = { query: "", source: "all", captureTypes: [], author: "", tag: "", make: "", architecture: "all", gears: [], sizes: [], formats: [], calibratedOnly: false, verifiedOnly: false, minimumDownloads: 0, minimumFavorites: 0, minimumModels: 0, publishedWithinDays: 0, licenses: [], artworkOnly: false, downloadState: "all", favoritesOnly: false, favoriteIds: [], sort: "best-match" };
 
-describe("TonePilot catalogue filtering", () => {
+describe("ToneMod catalogue filtering", () => {
   it("searches provider metadata and combines advanced filters", () => {
     const tones = [tone("one", { metadata: { amplifier: "JCM 800" }, downloads: 500, rating: 20 }), tone("two", { title: "Clean combo", downloads: 20 })];
     expect(filterAndSortTones(tones, { ...filters, query: "jcm", minimumDownloads: 100 }).map((item) => item.id)).toEqual(["one"]);

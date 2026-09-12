@@ -180,6 +180,25 @@ describe("Rigs and Setlists device workflows", () => {
     expect(setPage).toHaveBeenCalledWith("editor");
   });
 
+  it("reorders tablet setlists by tapping arrows without loading or saving a rig", () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const save = vi.spyOn(useAppStore.getState(), "saveSelectedSetlist").mockResolvedValue();
+    const load = vi.spyOn(useAppStore.getState(), "loadRig").mockResolvedValue();
+    const original = structuredClone(useAppStore.getState().setlists[0].items);
+    const { container } = render(<SetlistsPage/>);
+
+    expect(screen.getByRole("button", { name: `Move ${original[0].title} up` })).toBeDisabled();
+    expect(screen.getByRole("button", { name: `Move ${original.at(-1)!.title} down` })).toBeDisabled();
+    expect(container.querySelector(".setlist-run-row")).toHaveAttribute("draggable", "false");
+    fireEvent.click(screen.getByRole("button", { name: `Move ${original[0].title} down` }));
+    expect(useAppStore.getState().setlists[0].items).toEqual([original[1], original[0], ...original.slice(2)]);
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: `Move ${original[0].title} up` }));
+    expect(useAppStore.getState().setlists[0].items).toEqual(original);
+    expect(save).not.toHaveBeenCalled();
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("creates, renames, and deletes setlists through explicit device actions", async () => {
     const create = vi.spyOn(useAppStore.getState(), "createSetlist").mockResolvedValue();
     const rename = vi.spyOn(useAppStore.getState(), "renameSetlist").mockResolvedValue();

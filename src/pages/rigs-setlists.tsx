@@ -1,6 +1,6 @@
 import { useMemo, useState, type CSSProperties } from "react";
 import {
-  Check, ChevronRight, Clock3, Copy, Download, Gauge, GripVertical, Guitar,
+  ArrowDown, ArrowUp, Check, ChevronRight, Clock3, Copy, Download, Gauge, GripVertical, Guitar,
   Heart, LayoutGrid, List, ListMusic, LoaderCircle, Pencil, Play, Plus, RefreshCw,
   Save, Search, SlidersHorizontal, Sparkles, Trash2,
 } from "lucide-react";
@@ -10,6 +10,7 @@ import type { Rig } from "../domain/types";
 import { cn } from "../lib/utils";
 import { useAppStore } from "../stores/app-store";
 import { PageTitle } from "../components/system/page-title";
+import { useCompactWorkspace } from "../hooks/use-tablet-layout";
 import "../styles/device-library.css";
 import "../styles/setlist-device-data.css";
 
@@ -199,6 +200,7 @@ export function RigsPage() {
 
 export function SetlistsPage() {
   const store = useAppStore();
+  const tablet = useCompactWorkspace();
   const [query, setQuery] = useState("");
   const [rigQuery, setRigQuery] = useState("");
   const [dragged, setDragged] = useState<number | null>(null);
@@ -212,6 +214,11 @@ export function SetlistsPage() {
   const selectedRigs = selected?.items.map((item) => store.rigs.find((rig) => rig.id === item.rigId)).filter((rig): rig is Rig => Boolean(rig)) ?? [];
   const tempos = selectedRigs.map((rig) => rig.tempo).filter(Boolean);
   const markDirty = (id = selected?.id) => id && setDirtyIds((current) => new Set(current).add(id));
+  const reorder = (from: number, to: number) => {
+    if (!selected || to < 0 || to >= selected.items.length || from === to) return;
+    store.moveSetlistItem(from, to);
+    markDirty();
+  };
   const clearDirty = (id: string) => setDirtyIds((current) => { const next = new Set(current); next.delete(id); return next; });
   const srIdFor = (rigId: string) => store.liveSnapshot?.rigLibrary.find((rig) => rig.id === rigId)?.srId;
   const save = async () => { if (!selected) return; setBusy(true); try { await store.saveSelectedSetlist(); clearDirty(selected.id); } finally { setBusy(false); } };
@@ -242,18 +249,18 @@ export function SetlistsPage() {
         <div className="setlist-browser-panel__footer"><span><Sparkles size={14} /><small>Loaded on device</small><strong>{store.liveSnapshot?.loadedSetlistName || "No active setlist"}</strong></span></div>
       </Card>
       {selected ? <Card className="setlist-run-sheet">
-        <header className="setlist-run-sheet__header"><div><span className="eyebrow">PERFORMANCE ORDER</span><div className="setlist-run-sheet__title"><h2>{selected.name}</h2>{dirtyIds.has(selected.id) ? <Badge tone="amber">UNSAVED</Badge> : <Badge tone="green">SAVED</Badge>}</div><p>Drag rigs into order. Changes stay local until you save this setlist.</p></div><div className="setlist-run-sheet__actions"><Button size="sm" onClick={() => { setName(selected.name); setDialog("rename"); }}><Pencil size={14} /> Rename</Button><IconButton className="rig-delete" label={`Delete ${selected.name}`} onClick={() => { if (window.confirm(`Delete “${selected.name}” from the device?`)) void store.deleteSetlist(selected.id); }}><Trash2 size={15} /></IconButton></div></header>
+        <header className="setlist-run-sheet__header"><div><span className="eyebrow">PERFORMANCE ORDER</span><div className="setlist-run-sheet__title"><h2>{selected.name}</h2>{dirtyIds.has(selected.id) ? <Badge tone="amber">UNSAVED</Badge> : <Badge tone="green">SAVED</Badge>}</div><p>{tablet ? "Use the arrows to reorder rigs." : "Drag rigs into order."} Changes stay local until you save this setlist.</p></div><div className="setlist-run-sheet__actions"><Button size="sm" onClick={() => { setName(selected.name); setDialog("rename"); }}><Pencil size={14} /> Rename</Button><IconButton className="rig-delete" label={`Delete ${selected.name}`} onClick={() => { if (window.confirm(`Delete “${selected.name}” from the device?`)) void store.deleteSetlist(selected.id); }}><Trash2 size={15} /></IconButton></div></header>
         <section className="setlist-overview-grid"><span><ListMusic size={16} /><small>RIGS</small><strong>{selected.items.length}</strong></span><span><Gauge size={16} /><small>TEMPO RANGE</small><strong>{tempos.length ? `${Math.min(...tempos)}–${Math.max(...tempos)}` : "—"}<em>{tempos.length ? " BPM" : ""}</em></strong></span><span><Guitar size={16} /><small>CURRENT RIG</small><strong title={store.liveSnapshot?.rig.name}>{store.liveSnapshot?.rig.name || "Not reported"}</strong></span><span><Clock3 size={16} /><small>CURRENT POSITION</small><strong>{Math.max(0, selected.items.findIndex((item) => item.rigId === store.liveSnapshot?.rig.id) + 1) || "—"}</strong></span></section>
         <div className="setlist-run-columns"><span>#</span><span>RIG</span><span>TEMPO</span><span>PERFORMANCE NOTE</span><span>ACTIONS</span></div>
         <div className="setlist-run-list">{selected.items.map((item, index) => {
           const rig = store.rigs.find((entry) => entry.id === item.rigId);
           const current = item.rigId === store.liveSnapshot?.rig.id;
-          return <div key={item.id} draggable data-context-kind="rig" data-rig-id={item.rigId} className={cn("setlist-run-row", dragged === index && "dragging", current && "current")} onDragStart={() => setDragged(index)} onDragEnd={() => setDragged(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (dragged !== null && dragged !== index) { store.moveSetlistItem(dragged, index); markDirty(); } setDragged(null); }}>
-            <span className="setlist-run-row__position"><GripVertical size={14} /><b>{String(index + 1).padStart(2, "0")}</b></span>
+          return <div key={item.id} draggable={!tablet} data-context-kind="rig" data-rig-id={item.rigId} className={cn("setlist-run-row", dragged === index && "dragging", current && "current")} onDragStart={() => setDragged(index)} onDragEnd={() => setDragged(null)} onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (dragged !== null) reorder(dragged, index); setDragged(null); }}>
+            <span className="setlist-run-row__position">{!tablet && <GripVertical size={14} />}<b>{String(index + 1).padStart(2, "0")}</b></span>
             <span className="setlist-run-row__rig"><i style={{ "--rig-color": rig?.color ?? "#718096" } as CSSProperties}><Guitar size={15} /></i><span><strong>{item.title || rig?.name || "Unknown rig"}</strong><small>{rig?.author || "On device"}{current ? " · CURRENTLY LOADED" : ""}</small></span></span>
             <span className="setlist-run-row__tempo"><b>{rig?.tempo || "—"}</b><small>{rig?.tempo ? "BPM" : "NO TEMPO"}</small></span>
             <p title={item.notes}>{item.notes || "No performance note"}</p>
-            <span className="setlist-run-row__actions"><IconButton label={`Load ${item.title}`} onClick={() => item.rigId && void openRig(item.rigId)}><Play size={14} /></IconButton><IconButton label={`Remove ${item.title}`} onClick={() => { store.removeSetlistItem(item.id); markDirty(); }}><Trash2 size={14} /></IconButton></span>
+            <span className="setlist-run-row__actions">{tablet && <><IconButton label={`Move ${item.title} up`} disabled={index === 0} onClick={() => reorder(index, index - 1)}><ArrowUp size={17}/></IconButton><IconButton label={`Move ${item.title} down`} disabled={index === selected.items.length - 1} onClick={() => reorder(index, index + 1)}><ArrowDown size={17}/></IconButton></>}<IconButton label={`Load ${item.title}`} onClick={() => item.rigId && void openRig(item.rigId)}><Play size={14} /></IconButton><IconButton label={`Remove ${item.title}`} onClick={() => { store.removeSetlistItem(item.id); markDirty(); }}><Trash2 size={14} /></IconButton></span>
           </div>;
         })}</div>
         {!selected.items.length && <EmptyState icon={<ListMusic size={24} />} title="This setlist is empty" description="Add rigs in the order you want to play them." />}

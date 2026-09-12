@@ -8,5 +8,7 @@ import "./styles/feature-completion.css";
 import "./styles/readability-theme.css";
 import "./styles/ux-foundations.css";
 import "./styles/context-menu.css";
+import "./styles/tablet-workspaces.css";
+import "./styles/phone-workspaces.css";
 
 createRoot(document.getElementById("root")!).render(<StrictMode><App /></StrictMode>);

@@ -26,7 +26,7 @@ const routeStyles = [
   ]],
   ["pages/rigs-setlists.tsx", ["device-library.css", "setlist-device-data.css"]],
   ["pages/live-play.tsx", ["live-tone.css", "stagehand-v2.css"]],
-  ["pages/tone-lab.tsx", ["live-tone.css", "tonepilot-upgrades.css", "tonepilot-lab.css"]],
+  ["pages/tone-lab.tsx", ["live-tone.css", "tonemod-upgrades.css", "tonemod-lab.css"]],
   ["pages/performance-studio.tsx", [
     "performance-tools.css",
     "performance-modern.css",
@@ -38,7 +38,6 @@ const routeStyles = [
 ] as const;
 
 const componentStyles = [
-  ["pages/tonepilot-nam-folder-picker.tsx", ["device-file-picker.css", "tonepilot-nam-folder-picker.css"]],
   ["components/ui/index.tsx", ["ui-components.css"]],
   ["components/system/controls.tsx", ["controls.css"]],
   ["components/system/device-file-control.tsx", ["device-file-picker.css"]],

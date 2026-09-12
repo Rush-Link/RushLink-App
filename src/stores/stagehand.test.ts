@@ -20,6 +20,33 @@ describe("StageHand stages", () => {
     });
   });
 
+  it("blocks every layout mutation while locked, including stale menu and MIDI-learn actions", () => {
+    const store = useAppStore.getState();
+    store.createLiveStage();
+    store.selectLiveStage(defaultLiveStage.id);
+    store.setLiveLocked(true);
+    const before = structuredClone(useAppStore.getState().liveStages);
+    const button = useAppStore.getState().liveLayout.buttons[0]!;
+    store.moveLiveButton(0, 1);
+    store.removeLiveButton(button.id);
+    store.updateLiveButton(button.id, { label: "Changed" });
+    store.updateMidi(button.id, { ...button.midi, number: 99 });
+    store.addLiveButton({ ...button, id: "extra" });
+    store.setLiveDimensions(4, 8, 8);
+    store.setLiveSpacing({ columnGap: 35 });
+    store.setLiveModel("Prime");
+    store.renameLiveStage("Changed");
+    store.attachLiveStageToRig(demoRigs[0].id);
+    store.deleteLiveStage();
+    store.duplicateLiveStage();
+    store.createLiveStage();
+    expect(useAppStore.getState().liveStages).toEqual(before);
+    expect(useAppStore.getState().liveLayout).toEqual(before[0].layout);
+    store.setLiveLocked(false);
+    store.updateLiveButton(button.id, { label: "Changed" });
+    expect(useAppStore.getState().liveLayout.buttons[0]?.label).toBe("Changed");
+  });
+
   it("creates a separate empty stage and keeps its layout in sync", () => {
     useAppStore.getState().createLiveStage("Acoustic set");
     const created = useAppStore.getState().liveStages.at(-1)!;

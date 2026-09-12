@@ -39,7 +39,7 @@ describe("RushLink application integration", () => {
     await waitFor(() => expect(container.querySelector(".page-dashboard")).toBeInTheDocument());
     const journeys = [
       ["Rig Editor", "editor"], ["Rigs & Setlists", "rigs"], ["StageHand", "live"],
-      ["TonePilot", "tone-cloud"], ["Performance Tools", "tools"], ["Library & Backup", "library"],
+      ["ToneMod", "tone-cloud"], ["Performance Tools", "tools"], ["Library & Backup", "library"],
       ["Settings", "settings"], ["Diagnostics", "diagnostics"], ["Overview", "dashboard"],
     ] as const;
     for (const [label, page] of journeys) {
@@ -231,7 +231,7 @@ describe("RushLink application integration", () => {
     vi.useRealTimers();
   });
 
-  it("warns before closing only while a temporary TonePilot rig must be restored", () => {
+  it("warns before closing only while a temporary ToneMod rig must be restored", () => {
     useAppStore.setState({ testRigReturn: { id: "return-rig", name: "Original rig", auditionSource: "Tone3000" } });
     const view = render(<App/>);
     const protectedClose = new Event("beforeunload", { cancelable: true });
@@ -282,14 +282,14 @@ describe("RushLink application integration", () => {
     await waitFor(() => expect(useAppStore.getState().diagnostics.some((entry) => entry.message.includes("Could not start realtime updates"))).toBe(true));
   });
 
-  it("automatically attempts the saved device once when discovery is enabled", async () => {
+  it.each(["headrushflexprime.local", "192.168.1.129"])("automatically attempts the model hostname once with saved address %s", async (address) => {
     vi.spyOn(deviceApi, "isNative").mockReturnValue(true);
     vi.spyOn(deviceApi, "onDeviceEvent").mockResolvedValue(() => undefined);
     const connect = vi.fn().mockResolvedValue(undefined);
     useAppStore.setState((state) => ({
       device: null,
       connect,
-      preferences: { ...state.preferences, address: "headrushflexprime.local", autoDiscovery: true },
+      preferences: { ...state.preferences, address, modelAddress: "headrushflexprime.local", autoDiscovery: true },
     }));
     const view = render(<App/>);
     await waitFor(() => expect(connect).toHaveBeenCalledTimes(1));

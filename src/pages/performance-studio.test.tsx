@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoDevice, demoRigs } from "../data/demo-data";
 import type { HeadRushObject, HeadRushSubtree } from "../domain/types";
@@ -58,7 +58,53 @@ describe("Performance Tools device workflows", () => {
     vi.spyOn(deviceApi, "setProperties").mockResolvedValue({ status: 200, body: {} });
     vi.spyOn(useAppStore.getState(), "refreshPage").mockResolvedValue();
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+
+  it("switches tablet tools without interrupting the tuner or losing EQ choices", async () => {
+    vi.stubGlobal("matchMedia", () => ({ matches: true, addEventListener() {}, removeEventListener() {} }));
+    const tuner = vi.spyOn(deviceApi, "setDeviceTuner").mockResolvedValue(undefined);
+    vi.spyOn(deviceApi, "tunerValues").mockResolvedValue({ TunerString: "A", TunerCents: .5 });
+    render(<PerformanceToolsPage/>);
+    const navigation = screen.getByRole("navigation", { name: "Performance tool" });
+    expect(screen.getByRole("region", { name: "Drummer" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Global EQ" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(navigation).getByRole("button", { name: "Device tuner" }));
+    fireEvent.click(screen.getByRole("button", { name: /Open device tuner/i }));
+    await waitFor(() => expect(within(navigation).getByRole("button", { name: "Device tuner Active" })).toBeInTheDocument());
+    fireEvent.click(within(navigation).getByRole("button", { name: "Global EQ" }));
+    const amp = screen.getByRole("tab", { name: "Amp output" });
+    fireEvent.mouseDown(amp, { button: 0 }); fireEvent.click(amp);
+    fireEvent.click(within(navigation).getByRole("button", { name: "Drummer" }));
+    fireEvent.click(within(navigation).getByRole("button", { name: "Global EQ" }));
+    expect(amp).toHaveAttribute("aria-selected", "true");
+    expect(tuner.mock.calls).toEqual([[true]]);
+    expect(useAppStore.getState().performanceTunerActive).toBe(true);
+    fireEvent.click(within(navigation).getByRole("button", { name: "Device tuner Active" }));
+    expect(screen.getByRole("button", { name: /Close tuner/i })).toBeVisible();
+  });
+
+  it("keeps the focused desktop tool visible when the viewport becomes a tablet", () => {
+    let matches = false;
+    const listeners = new Set<() => void>();
+    vi.stubGlobal("matchMedia", () => ({
+      get matches() { return matches; },
+      addEventListener: (_event: string, listener: () => void) => listeners.add(listener),
+      removeEventListener: (_event: string, listener: () => void) => listeners.delete(listener),
+    }));
+    render(<PerformanceToolsPage/>);
+    const reset = screen.getByRole("button", { name: /Reset flat/i });
+    reset.focus();
+    act(() => { matches = true; listeners.forEach((listener) => listener()); });
+    expect(reset).toHaveFocus();
+    expect(screen.getByRole("region", { name: "Global EQ" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Global EQ" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("region", { name: "Drummer" })).not.toBeInTheDocument();
+    screen.getByRole("button", { name: "Global EQ" }).focus();
+    act(() => { matches = false; listeners.forEach((listener) => listener()); });
+    expect(screen.getByRole("region", { name: "Global EQ" })).toContainElement(document.activeElement as HTMLElement);
+    expect(screen.queryByRole("navigation", { name: "Performance tool" })).not.toBeInTheDocument();
+  });
 
   it("opens and closes the device drum page and discovers presets", async () => {
     const call = vi.mocked(deviceApi.callMethod);

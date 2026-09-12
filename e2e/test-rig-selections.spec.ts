@@ -1,10 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { connectBrowserDemo } from "./support/connect-browser-demo";
 
-test("dual-cab selections remain readable and editable on cold TonePilot at desktop and phone widths", async ({ page }, testInfo) => {
+test("dual-cab selections remain readable and editable on cold ToneMod at desktop and phone widths", async ({ page }, testInfo) => {
   await page.goto("/?page=tone-cloud");
   await connectBrowserDemo(page);
-  await expect(page.getByRole("heading", { name: "TonePilot", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "ToneMod", exact: true })).toBeVisible();
   await page.evaluate(async () => {
     // @ts-expect-error Vite exposes source modules only in this dev-browser test.
     const { useAppStore } = await import("/src/stores/app-store.ts");

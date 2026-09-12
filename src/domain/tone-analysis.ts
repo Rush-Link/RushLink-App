@@ -17,7 +17,7 @@ export interface TestRigSlotRole {
 }
 
 /**
- * Stable TonePilot host positions. The UI presents these as slots 4, 7 and 8,
+ * Stable ToneMod host positions. The UI presents these as slots 4, 7 and 8,
  * while the model deliberately remains zero-based. Amps remain movable so a
  * post-amp effect can be placed before the fixed NAM and IR hosts.
  */

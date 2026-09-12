@@ -22,7 +22,7 @@ The account document never contains:
 - Tone3000/HeadRush Cloud catalogue and model caches
 - snapshots, rig edit history, pending writes or diagnostics
 - Dropbox, RushLink or provider access/refresh tokens
-- temporary TonePilot audition state
+- temporary ToneMod audition state
 
 Authentication secrets belong in the operating system credential store. A device may keep the last accepted sync document locally as a three-way merge base.
 

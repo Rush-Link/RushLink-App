@@ -3,7 +3,7 @@ import {
   Gauge, Link2, ListMusic, Music, Pause, Play, Plus,
   Power, RefreshCw, RotateCcw, Save, Sparkles, Volume2, VolumeX, Waves,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Badge, Button, Card, Dialog, Input, Select, Switch, Tabs } from "../components/ui";
 import { ReflectionEditor } from "../components/system/reflection-editor";
 import { EqGraph } from "../components/system/eq-graph";
@@ -14,6 +14,7 @@ import { deviceApi } from "../services/device-api";
 import { deviceErrorMessage } from "../services/device-errors";
 import { useAppStore } from "../stores/app-store";
 import { PageTitle } from "../components/system/page-title";
+import { useCompactWorkspace } from "../hooks/use-tablet-layout";
 import "../styles/performance-tools.css";
 import "../styles/performance-modern.css";
 import "../styles/drum-preset-dialog.css";
@@ -315,11 +316,28 @@ function GlobalEqConsole({ tree }: { tree: Record<string, HeadRushObject> }) {
 
 export function PerformanceToolsPage() {
   const store = useAppStore(); const tree = store.liveSubtree ?? {}; const rig = store.liveSnapshot?.rig ?? store.rigs.find((item) => item.id === store.selectedRigId); const syncLabel = store.liveSnapshot?.syncedAt ? new Date(store.liveSnapshot.syncedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Offline";
+  const tablet = useCompactWorkspace();
+  const [tool, setTool] = useState(() => tree[TUNER_INPUT]?.value?.TunerOn === true ? "tuner" : "drummer");
+  // When a desktop window becomes a tablet layout, keep the focused tool open.
+  useLayoutEffect(() => {
+    if (!tablet) {
+      const trigger = document.activeElement?.closest(".performance-tool-nav button");
+      const controls = trigger?.getAttribute("aria-controls");
+      if (controls) document.getElementById(controls)?.querySelector<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled)")?.focus();
+      return;
+    }
+    const focused = document.activeElement?.closest<HTMLElement>("[data-performance-tool]");
+    if (focused?.dataset.performanceTool) setTool(focused.dataset.performanceTool);
+  }, [tablet]);
   const healthTone = store.device?.status === "ready" ? "green" : store.connectionBusy ? "amber" : "neutral";
   return <div className="page performance-studio-page"><PageTitle eyebrow="DEVICE-NATIVE PERFORMANCE SUITE" title="Performance Tools" description="Stateful device tools for the Flex Prime drum engine, tuner and output shaping." actions={<><Badge tone={healthTone}><Activity size={11}/>{store.connectionBusy ? "SYNCING" : store.device?.status === "ready" ? "LIVE DEVICE" : "OFFLINE"}</Badge><Button disabled={!store.device} onClick={() => void store.refreshPage("tools", "manual")}><RefreshCw size={15} className={store.syncBusy ? "spin" : ""}/> Refresh tools</Button></>}/>
     <Card className="performance-status-strip"><span><Gauge size={15}/><small>DEVICE CPU</small><strong>{store.liveSnapshot ? `${store.liveSnapshot.cpuPercent}%` : "—"}</strong></span><span><Waves size={15}/><small>CURRENT RIG</small><strong>{rig?.name ?? "No rig"}</strong></span><span><Clock3 size={15}/><small>LAST UPDATE</small><strong>{syncLabel}</strong></span><span><Link2 size={15}/><small>TRANSPORT</small><strong>{store.lastSyncSource ?? "waiting"}</strong></span><span className="performance-status-note"><Activity size={14}/><small>Adaptive sync</small><strong>WebSocket + scoped polling</strong></span></Card>
-    <DrumMachineStudio object={tree[DRUMS]}/>
-    <div className="performance-tuner-row"><DeviceTuner/></div>
-    <GlobalEqConsole tree={tree}/>
+    <nav className="performance-tool-nav" aria-label="Performance tool" hidden={!tablet}>
+      {[{ id: "drummer", label: "Drummer" }, { id: "tuner", label: "Device tuner" }, { id: "eq", label: "Global EQ" }].map((item) => <button key={item.id} type="button" aria-pressed={tool === item.id} aria-controls={`performance-tool-${item.id}`} onClick={() => setTool(item.id)}>{item.label}{item.id === "tuner" && store.performanceTunerActive && <small>Active</small>}{item.id === "drummer" && tree[DRUMS]?.value?.isPlaying === true && <small>Playing</small>}</button>)}
+    </nav>
+    {/* Keep tools mounted so selecting a view preserves settings and playback. */}
+    <section id="performance-tool-drummer" data-performance-tool="drummer" className="performance-tool-panel" aria-label="Drummer" hidden={tablet && tool !== "drummer"}><DrumMachineStudio object={tree[DRUMS]}/></section>
+    <section id="performance-tool-tuner" data-performance-tool="tuner" className="performance-tool-panel" aria-label="Device tuner" hidden={tablet && tool !== "tuner"}><div className="performance-tuner-row"><DeviceTuner/></div></section>
+    <section id="performance-tool-eq" data-performance-tool="eq" className="performance-tool-panel" aria-label="Global EQ" hidden={tablet && tool !== "eq"}><GlobalEqConsole tree={tree}/></section>
   </div>;
 }

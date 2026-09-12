@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { parameterDeviceValue, parametersForObject } from "../domain/headrush-reflection";
 import type { HeadRushObject } from "../domain/types";
 import { testRigTemplates } from "../data/demo-data";
-import { TestRigParameterEditor } from "./tonepilot-test-rigs";
+import { TestRigParameterEditor } from "./tonemod-test-rigs";
 
 afterEach(cleanup);
 

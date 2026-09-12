@@ -19,7 +19,25 @@ Install the Rust MSVC toolchain and Microsoft C++ Build Tools, then:
 npm run tauri dev
 ```
 
-RushLink connects only to a `.local`, loopback, or private-LAN address. Add a manual address in Settings if discovery is unavailable.
+RushLink communicates with HeadRush over Wi-Fi only, using a `.local`, loopback, or private-LAN address. Add a manual address in Settings if discovery is unavailable. NAM downloads save to `Neural Amp Modeler/Tone 3000`; the save popup lets you name the model or save the active audition as a rig. Custom NAM destinations are unavailable through the verified Wi-Fi API.
+
+## Build and tablet shortcuts
+
+In VS Code, choose **Terminal → Run Task → RushLink: Run on tablet** to build,
+install and open the app in the PC tablet emulator. **Ctrl+Shift+B** runs the
+Windows and Android build with checks.
+
+```powershell
+npm run tablet        # Build, install and launch the tablet app
+npm run build:local   # Windows installers + Android APKs, built locally
+npm run build:macos   # Apple Silicon + Intel DMGs, built in GitHub Actions
+npm run build:all     # Local builds, then Mac builds and verified downloads
+npm run builds:open   # Open the installers and checksum index
+```
+
+The tools reuse caches and collect output in `release-artifacts/current-build/`.
+Build commands keep releases unpublished. See [the workflow guide](docs/WORKFLOW.md)
+for first setup, stopping the emulator, and the full list of tasks.
 
 ## Project status
 
@@ -66,7 +84,7 @@ See [docs/APP_PLAN.md](docs/APP_PLAN.md) and [docs/IMPLEMENTATION.md](docs/IMPLE
 
 ## Marketing website
 
-The dependency-free GitHub Pages website lives in [`site/`](site/). It includes the animated product story, TonePilot and StageHand demonstrations, current-alpha documentation, roadmap, responsive layouts, and an opt-in `?stats=1` view for public GitHub Release asset totals.
+The dependency-free GitHub Pages website lives in [`site/`](site/). It includes the animated product story, ToneMod and StageHand demonstrations, current-alpha documentation, roadmap, responsive layouts, and an opt-in `?stats=1` view for public GitHub Release asset totals.
 
 ```powershell
 npm run test:site
@@ -76,13 +94,16 @@ The workflow in [`.github/workflows/pages.yml`](.github/workflows/pages.yml) dep
 
 ## Desktop releases
 
-Run the release payload checks and build a Windows installer with:
+Run the release payload checks and build Windows installers with:
 
 ```powershell
-npm run build:desktop
+npm run build:windows
 ```
 
-Windows installers are written below `src-tauri/target/release/bundle/`. macOS `.dmg` bundles must be built on macOS; the release workflow builds separate Apple Silicon and Intel artifacts and can sign and notarize them when the Apple secrets described in [docs/RELEASE.md](docs/RELEASE.md) are configured.
+Windows installers and checksums are collected in `release-artifacts/current-build/windows/`.
+`npm run build:macos` builds Apple Silicon and Intel DMGs using the private GitHub
+Actions preview workflow and downloads them automatically. Public signing and
+notarization are described in [docs/RELEASE.md](docs/RELEASE.md).
 
 Only publish the generated installer artifacts. Do not upload `reference/`, `coverage/`, `playwright-report/`, `dist/`, or the Rust `target/` tree. The captured device research in `reference/` is development input and is never included in the application bundle. For the closed-source public release, the website and installer downloads are hosted in the separate public `rush-link/rush-link.github.io` repository rather than exposing this private source repository.
 

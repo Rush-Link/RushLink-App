@@ -79,6 +79,36 @@ html body .app small { font-size: 12px; }
 .switch { min-width: 42px; min-height: 24px; }
 
 .collapse-button--mobile, .sidebar-scrim { display: none; }
+.sidebar__support {
+  position: relative;
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 12px;
+  height: 39px;
+  padding: 0 11px;
+  border-radius: 8px;
+  color: #a1afc1;
+  text-decoration: none;
+  white-space: nowrap;
+  touch-action: manipulation;
+}
+.sidebar__support:hover { background: #172231; color: #f2f7fc; }
+.sidebar__support:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.sidebar__support-logo { flex: none; color: #ff8e80; }
+.sidebar__support-external { flex: none; margin-left: auto; }
+.sidebar__support-error { padding: 4px 11px; color: var(--red); font-size: 12px; overflow-wrap: anywhere; }
+.density-stage .sidebar__support { height: 46px; }
+@media (min-width: 761px) {
+  .app--collapsed .sidebar__support { justify-content: center; padding: 0; }
+  .app--collapsed .sidebar__support-label { display: none; }
+  .app--collapsed .sidebar__support-external { position: absolute; top: 6px; right: 4px; width: 10px; height: 10px; }
+}
+@media (min-width: 761px) and (max-width: 1050px) {
+  .sidebar__support { justify-content: center; padding: 0; }
+  .sidebar__support-label { display: none; }
+  .sidebar__support-external { position: absolute; top: 6px; right: 4px; width: 10px; height: 10px; }
+}
 .device-session { display: flex; align-items: center; gap: 7px; color: var(--green); }
 .device-session > span { display: grid; line-height: 1.15; }
 .device-session strong { color: var(--text-2); font-size: 12px; font-weight: 700; }
@@ -333,6 +363,94 @@ html body .app small { font-size: 12px; }
 .density-stage .tabs button, .density-stage .icon-button { min-height: var(--control-stage); font-size: 15px; }
 .density-stage .icon-button { min-width: var(--control-stage); }
 
+/* Tablet navigation shares its menu toggle with the logo and leaves the full
+   workspace height available. AppShell also applies this class to large tablets. */
+@media (min-width: 600px) {
+  .app.app--tablet {
+    display: grid;
+    grid-template-columns: 244px minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
+  }
+  .app.app--tablet.app--collapsed { grid-template-columns: 72px minmax(0, 1fr); }
+  .app--tablet > .main { min-height: 0; height: 100%; grid-template-rows: minmax(0, 1fr); }
+  .app--tablet > .main > .topbar,
+  .app--tablet > .main > .statusbar,
+  .app--tablet .sidebar__bottom,
+  .app--tablet .collapse-button--desktop { display: none; }
+  .app--tablet > .sidebar { min-height: 0; overflow: hidden; }
+  .app--tablet .app-content { min-width: 0; min-height: 0; }
+
+  .app.app--tablet .brand { height: auto; min-height: 80px; flex: 0 0 auto; gap: 8px; padding: 8px; }
+  .app--tablet .brand__menu {
+    position: relative;
+    display: flex;
+    flex: 0 0 56px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 2px;
+    width: 56px;
+    height: 64px;
+    min-width: var(--control-touch);
+    min-height: var(--control-touch);
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: transparent;
+    color: #8de9f0;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .app--tablet .brand__menu:hover { border-color: rgba(var(--cyan-rgb), .4); background: rgba(var(--cyan-rgb), .06); }
+  .app--tablet .brand__menu .brand__mark { flex: none; width: 52px; min-width: 52px; height: 46px; }
+  .app--tablet .brand__menu-glyph { display: grid; flex: none; width: 14px; height: 14px; margin: 0; place-items: center; color: #8de9f0; }
+  .app--tablet .brand__menu-glyph > svg { width: 14px; height: 14px; }
+  .app.app--tablet:not(.app--collapsed) .brand > .brand__connection { display: flex; }
+  .app.app--tablet.app--collapsed .brand__connection { display: none; }
+
+  .app--tablet .sidebar__nav { flex: 1 1 auto; min-height: 0; gap: 4px; padding: 8px; }
+  .app.app--tablet .sidebar__nav button,
+  .app.app--tablet .sidebar__support { flex-shrink: 0; min-width: var(--control-touch); min-height: var(--control-touch); height: 44px; }
+  .app--tablet .sidebar__nav button > svg { flex: none; }
+  .app.app--tablet:not(.app--collapsed) .sidebar__nav button,
+  .app.app--tablet:not(.app--collapsed) .sidebar__support { justify-content: flex-start; padding: 0 11px; }
+  .app.app--tablet:not(.app--collapsed) .sidebar__nav button > span,
+  .app.app--tablet:not(.app--collapsed) .sidebar__support-label { display: block; }
+  .app.app--tablet:not(.app--collapsed) .sidebar__nav button > b { display: grid; }
+  .app.app--tablet:not(.app--collapsed) .nav-section { display: block; height: 24px; flex: none; }
+  .app.app--tablet:not(.app--collapsed) .sidebar__support-external { position: static; width: 14px; height: 14px; margin-left: auto; }
+  .app.app--tablet.app--collapsed .sidebar__nav button,
+  .app.app--tablet.app--collapsed .sidebar__support { justify-content: center; padding: 0; }
+
+  .app--tablet .sidebar__session-actions { display: grid; flex: none; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line-soft); }
+  .app--tablet .sidebar__session-action {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    width: 100%;
+    min-height: var(--control-touch);
+    padding: 8px 10px;
+    border: 1px solid #344252;
+    border-radius: 8px;
+    background: #121c27;
+    color: #c9e3eb;
+    cursor: pointer;
+  }
+  .app--tablet .sidebar__session-action:hover { border-color: #66cbd6; background: #1b2b39; }
+  .app--tablet .sidebar__session-action > svg { flex: none; }
+  .app--tablet .sidebar__session-action > span { min-width: 0; flex: 1; font-size: 12px; line-height: 1.3; text-align: left; white-space: normal; }
+  .app--tablet .sidebar__session-action > small { display: none; }
+  .app--tablet .sidebar__session-action > b { display: grid; flex: none; min-width: 20px; height: 20px; padding: 0 4px; place-items: center; border-radius: 10px; background: var(--amber); color: #171006; font-size: 12px; }
+  .app.app--tablet.app--collapsed .sidebar__session-action { flex-direction: column; justify-content: center; gap: 2px; min-height: 52px; padding: 5px 0; }
+  .app.app--tablet.app--collapsed .sidebar__session-action > span { display: none; }
+  .app.app--tablet.app--collapsed .sidebar__session-action > small { display: block; margin: 0; color: #c9e3eb; font-size: 12px; line-height: 14px; }
+  .app.app--tablet.app--collapsed .sidebar__session-action > b { position: absolute; top: 2px; right: 2px; min-width: 16px; height: 16px; padding: 0 3px; font-size: 11px; }
+}
+
 @media (max-width: 760px) {
   html, body, #root { min-width: 320px; }
   body { font-size: 16px; }
@@ -342,6 +460,7 @@ html body .app small { font-size: 12px; }
   .sidebar-scrim { position: fixed; inset: 0; z-index: 49; border: 0; background: rgba(2,5,9,.7); backdrop-filter: blur(3px); }
   .app--mobile-nav-open .sidebar-scrim { display: block; }
   .sidebar__nav button { min-height: var(--control-touch); font-size: 14px; }
+  .sidebar__support { min-height: var(--control-touch); padding: 0; font-size: 14px; }
   .sidebar__bottom .device-badge { display: none; }
   .collapse-button--desktop { display: none; }
   .collapse-button--mobile { display: flex; min-height: var(--control-touch); font-size: 14px; }

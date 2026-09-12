@@ -15,7 +15,7 @@ moduleTypes[45] = "Tape Echo";
 moduleTypes[46] = "Tape Echo 2";
 moduleTypes[10] = "IR 2";
 
-describe("TonePilot temporary Test Rig planning", () => {
+describe("ToneMod temporary Test Rig planning", () => {
   it("ships every reference Test Rig with its intended IR file", () => {
     const expected = {
       clean: "CT-Fend312EMFDS-4217B.wav",
@@ -120,6 +120,17 @@ describe("TonePilot temporary Test Rig planning", () => {
     expect(plan.applied).toBe(false);
     expect(plan.complete).toBe(true);
     expect(plan.message).toMatch(/complete temporary signal chain/i);
+  });
+
+  it("applies a capture-only rig so its NAM output and exact slot are still configured", () => {
+    const capture = structuredClone(testRigTemplates[0].blocks.find((block) => block.name === "Capture slot")!);
+    capture.parameters.find((parameter) => parameter.id === "Output")!.value = 8;
+    const plan = buildTestRigDevicePlan({
+      blocks: [capture], captureType: "amp", source: "Tone3000", moduleTypes,
+      currentModuleTypeIds: [0, 0, 0, 0, 19, 9],
+    });
+    expect(plan).toMatchObject({ applied: true, complete: true, captureSlot: 6, clearSlots: [4, 5] });
+    expect(plan.assignments).toMatchObject([{ capture: true, slot: 6, block: capture }]);
   });
 
   it("uses the reflected IR host for an IR-only audition", () => {
