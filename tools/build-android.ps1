@@ -149,7 +149,9 @@ try {
     $assetDirectory = Join-Path $repoRoot 'src-tauri/gen/android/app/src/main/assets'
     New-Item -ItemType Directory -Force -Path $assetDirectory | Out-Null
     [IO.File]::WriteAllText((Join-Path $assetDirectory 'tauri.conf.json'), ($effectiveConfig | ConvertTo-Json -Depth 100), [Text.UTF8Encoding]::new($false))
-    $gradleArguments = @('-p', (Join-Path $repoRoot 'src-tauri/gen/android'))
+    # Recreate APKs: incremental ZIP updates can retain an unused copy of the
+    # previous native library, nearly doubling a debug APK's download size.
+    $gradleArguments = @('-p', (Join-Path $repoRoot 'src-tauri/gen/android'), ':app:clean')
     $gradleArguments += @($architectures | ForEach-Object { ":app:assemble$($_.GradleName)Debug" })
     foreach ($architecture in $architectures) { $gradleArguments += @('-x', ":app:rustBuild$($architecture.GradleName)Debug") }
     $gradleArguments += @('--console=plain', '--no-daemon')
