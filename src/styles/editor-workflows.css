@@ -6,6 +6,13 @@
   --line-soft:#202938;
 }
 
+.editor-page--workspace{grid-template-rows:auto minmax(0,1fr)}
+.editor-page .editor-toolbar{min-height:54px;flex-wrap:wrap;padding-block:8px;row-gap:8px}
+.editor-page .toolbar-actions{min-width:0;flex-wrap:wrap}
+.editor-page .editor-workspace--controls-collapsed{grid-template-columns:minmax(0,1fr)}
+.editor-page .editor-workspace--controls-collapsed>.chain-panel{grid-column:1/-1;min-width:0}
+.editor-page .editor-workspace>.inspector[hidden]{display:none}
+
 .editor-page .eyebrow{color:#93a0b3;font-size:12px}
 .chain-panel__header h2{font-size:21px;letter-spacing:-.2px}
 .chain-panel__header p{margin-top:5px;color:var(--text-2);font-size:11px}

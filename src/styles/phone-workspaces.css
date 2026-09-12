@@ -1,0 +1,88 @@
+/* Phone workspaces inherit tablet ergonomics but keep the full content width. */
+.app.app--phone { display: block; height: 100dvh; padding: 0; }
+.app--phone > .main { height: 100%; grid-template-rows: auto minmax(0, 1fr); }
+.app--phone .topbar { min-height: 52px; height: auto; padding: env(safe-area-inset-top) 10px 0; gap: 10px; }
+.app--phone .topbar__center, .app--phone .topbar__status, .app--phone .statusbar { display: none; }
+.app--phone .mobile-menu { display: flex; grid-auto-flow: column; grid-template-columns: 38px 15px; align-items: center; width: 62px; min-width: 62px; height: 48px; gap: 4px; padding: 3px; border: 0; }
+.app--phone .mobile-menu .rushlink-mark { width: 38px; height: 38px; }
+.app--phone .topbar__title { font-size: 14px; }
+.app--phone .topbar__title { flex: 1; min-width: 0; }
+.app--phone .topbar__title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.phone-session-actions { display: flex; flex: none; gap: 4px; }
+.phone-session-actions .ui-button, .phone-session-actions .icon-button { min-width: 44px; min-height: 44px; padding-inline: 8px; }
+.app.app--phone > .sidebar { position: fixed; z-index: 70; inset: calc(56px + env(safe-area-inset-top)) 8px auto; width: auto; height: auto; max-height: calc(100dvh - 68px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); padding: 0; border: 1px solid var(--line); border-radius: 14px; transform: translateY(-8px); visibility: hidden; opacity: 0; transition: opacity 150ms, transform 150ms, visibility 150ms; }
+.app.app--phone.app--mobile-nav-open > .sidebar { transform: translateY(0); visibility: visible; opacity: 1; }
+.app--phone .sidebar-scrim { z-index: 65; top: calc(52px + env(safe-area-inset-top)); }
+.app--phone .topbar { position: relative; z-index: 71; }
+.app--phone .sidebar .brand { display: none; }
+.app--phone .sidebar__nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 8px; }
+.app--phone .sidebar__nav button, .app--phone .sidebar__support { min-height: 48px; flex-shrink: 0; padding-inline: 12px; }
+.app--phone .sidebar__nav button > span, .app--phone .sidebar__support-label, .app--phone .brand__connection { display: block; }
+.app--phone .sidebar__support-external { position: static; width: 14px; height: 14px; margin-left: auto; }
+.app--phone .sidebar__session-actions { display: grid; gap: 6px; padding: 8px; border-bottom: 1px solid var(--line); }
+.app--phone .sidebar__session-action { min-height: 44px; justify-content: flex-start; white-space: normal; }
+.app--phone .sidebar__session-action > small, .app--phone .sidebar__session-action > b { display: none; }
+.app--phone .app-content { min-width: 0; container: tablet-workspace / inline-size; }
+.app--phone .page { padding: 14px 12px 24px; }
+.app--phone .page-title h1, .app--phone .overview-heading h1 { font-size: 23px; }
+.app--phone .page-title { margin-bottom: 12px; }
+.app--phone .page-title p { font-size: 12px; }
+.app--phone .settings-page .settings-nav { display: grid; overflow: visible; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.app--phone .settings-page .settings-nav button { min-width: 0; }
+.app--phone .settings-section__head, .app--phone .settings-section__body { padding: 12px; }
+.app--phone .tone-filter-grid { grid-template-columns: minmax(0, 1fr); }
+.app--phone .editor-workspace-tabs { flex-wrap: wrap; }
+.app--phone .editor-workspace-tabs button { flex: 1 1 100px; }
+.app--phone .chain-panel { padding: 10px; }
+.app--phone .live-toolbar__actions { justify-content: flex-start; }
+.app--phone .stagehand-stage-bar { flex-wrap: wrap; }
+.app--phone .stagehand-stage-tabs { min-width: 0; width: 100%; }
+.app--phone .performance-tool-nav { gap: 3px; }
+.app--phone .performance-tool-nav button { font-size: 12px; }
+.app--phone .global-eq-console { padding: 12px; }
+
+@media (max-width: 760px) {
+  .dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 16px); }
+  .dialog__header, .dialog__body, .dialog__footer { padding: 12px; }
+  .dialog__footer .ui-button { flex: 1 1 auto; }
+  .dialog .ui-input, .dialog .ui-select { max-width: 100%; }
+}
+
+/* Desktop/tablet keep their existing grids; only phones become paged tracks. */
+.phone-pager, .phone-pager__track, .phone-pager__page { display: contents; }
+.phone-pager__navigation { display: none; }
+.app--phone .phone-pager { display: block; min-width: 0; width: 100%; }
+.app--phone .phone-pager__navigation { display: flex; align-items: center; justify-content: space-between; gap: 4px; min-height: 44px; }
+.app--phone .phone-pager__navigation > span { font-size: 12px; min-width: 0; }
+.app--phone .phone-pager__navigation small { color: var(--muted); white-space: nowrap; }
+.app--phone .phone-pager__navigation > div { display: flex; flex: none; }
+.app--phone .phone-pager__navigation button { display: grid; place-items: center; width: 44px; height: 44px; padding: 0; background: none; border: 0; cursor: pointer; }
+.app--phone .phone-pager__navigation i { width: 7px; height: 7px; border-radius: 50%; background: #758195; }
+.app--phone .phone-pager__navigation [aria-current] i { background: var(--cyan); box-shadow: 0 0 0 3px rgba(var(--cyan-rgb), .15); }
+.app--phone .phone-pager__track { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; overscroll-behavior-x: contain; scrollbar-width: none; }
+.app--phone .phone-pager__track::-webkit-scrollbar { display: none; }
+.app--phone .phone-pager__page { display: block; flex: 0 0 100%; min-width: 0; max-height: max(220px, calc(100dvh - 220px)); overflow-y: auto; overflow-x: hidden; scroll-snap-align: start; scroll-snap-stop: always; padding: 2px; }
+.app--phone .phone-pager__page > * { max-width: 100%; }
+.app--phone .tone-grid { display: block; }
+.app--phone .tone-search-context, .app--phone .tone-catalogue-progress, .app--phone .page-title > div > p, .app--phone .overview-heading p { display: none; }
+.app--phone .tone-type-chips { flex-wrap: nowrap; overflow-x: auto; }
+.app--phone .tone-type-chips > button { flex-shrink: 0; }
+.app--phone .tone-search-console:not(:has(.tone-advanced-filters)) .tone-type-chips { display: none; }
+.app--phone .tone-page .page-title > div:first-child { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.app--phone .tone-page .page-title__actions { display: flex; flex-direction: row; flex-wrap: nowrap; width: 100%; }
+.app--phone .tone-page .page-title__actions > .ui-button { width: auto; flex: 1 1 auto; }
+.app--phone .tone-page .page-title__actions > .workspace-panel-toggle { flex: 0 0 44px; padding: 8px; }
+.app--phone .tone-page .page-title__actions > .workspace-panel-toggle span { display: none; }
+.app--phone .live-metrics { grid-template-columns: 1fr; }
+.app--phone .overview-lower { grid-template-columns: 1fr; }
+.app--phone .overview-heading > div:first-child, .app--phone .page-title > div:first-child { flex: 0 1 auto; width: 100%; }
+.app--phone .overview-heading .eyebrow { display: none; }
+.app.app--phone .overview-lower { display: grid; grid-template-columns: minmax(0, 1fr); }
+.app--phone .overview-switches .section-heading { flex-wrap: wrap; }
+/* Editing takes the workspace; closing controls returns to the chain/catalogue. */
+.app--phone .editor-workspace:has(#rig-editor-controls:not([hidden])) > .chain-panel,
+.app--phone .tone-layout:has(#tonemod-controls:not([hidden])) > .tone-browser,
+.app--phone .performance-status-strip { display: none; }
+.app--phone .inspector:not([hidden]), .app--phone .audition-panel:not([hidden]) { margin-top: 0; }
+@media (prefers-reduced-motion: reduce) { .app.app--phone > .sidebar { transition: none; } }
+.app.app--phone.reduce-motion > .sidebar { transition: none; }

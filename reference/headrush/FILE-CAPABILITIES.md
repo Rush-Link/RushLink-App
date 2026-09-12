@@ -75,12 +75,11 @@ with a plain model name immediately created the expected `.nam` in `Tone 3000`.
 The active NAM selection remained unchanged. A success envelope alone therefore
 does not establish that a requested custom folder was used.
 
-RushLink supports other NAM destinations through USB Transfer: download and verify
-the source in `Tone 3000`, then copy it into an existing folder under the mounted
-`Neural Amp Modeler` directory selected by the user. The native copy command is
-restricted to that dialog-authorized NAM directory, refuses to overwrite files,
-and keeps the original. The user must eject the drive and tap Sync on HeadRush
-after copying. This does not add a general-purpose network file-write route.
+RushLink communicates with HeadRush over Wi-Fi only. NAM saves use the verified
+`Neural Amp Modeler/Tone 3000` destination, with a user-chosen model name and a
+post-download file check. The popup also offers saving the active audition as a
+rig to retain its output level. Custom NAM destinations are not offered because
+no working Wi-Fi route has been established. There is no USB transfer fallback.
 
 ## Read boundary
 

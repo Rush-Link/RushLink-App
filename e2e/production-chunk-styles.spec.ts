@@ -24,7 +24,7 @@ test("optimized output loads Global EQ component styles without visiting Rig Edi
   expect(eqFitsViewport).toBe(true);
 });
 
-test("optimized output loads the complete TonePilot IR browser styling", async ({ page }) => {
+test("optimized output loads the complete ToneMod IR browser styling", async ({ page }) => {
   await page.goto("/?page=tone-cloud");
   await connectBrowserDemo(page);
   await page.getByRole("tab", { name: /Test Rig Studio/i }).click();

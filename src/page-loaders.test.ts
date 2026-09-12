@@ -8,7 +8,7 @@ import {
   loadRigsPages,
   loadStageHandPage,
   loadSystemPages,
-  loadTonePilotPage,
+  loadToneModPage,
   preloadPage,
 } from "./page-loaders";
 
@@ -18,7 +18,7 @@ describe("workspace code splitting", () => {
     ["editor", loadEditorPage, "EditorPage"],
     ["rig library", loadRigsPages, "RigsPage"],
     ["StageHand", loadStageHandPage, "LivePlayPage"],
-    ["TonePilot", loadTonePilotPage, "ToneLabPage"],
+    ["ToneMod", loadToneModPage, "ToneLabPage"],
     ["performance tools", loadPerformancePage, "PerformanceToolsPage"],
     ["library", loadLibraryPage, "LibraryBackupPage"],
     ["system pages", loadSystemPages, "SettingsPage"],

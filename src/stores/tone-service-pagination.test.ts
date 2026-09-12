@@ -34,7 +34,7 @@ function resetCatalogue() {
   });
 }
 
-describe("TonePilot 50-item provider batches", () => {
+describe("ToneMod 50-item provider batches", () => {
   beforeEach(() => {
     resetCatalogue();
     vi.spyOn(deviceApi, "isNative").mockReturnValue(true);

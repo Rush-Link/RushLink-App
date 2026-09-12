@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 test("navigates every core workspace and preserves a responsive shell", async ({ page }) => {
   const journeys = [
     ["Rig Editor", /Editing rig/i], ["Rigs & Setlists", "Rigs & Setlists"], ["StageHand", "StageHand"],
-    ["TonePilot", "TonePilot"], ["Performance Tools", "Performance Tools"], ["Library & Backup", "Library & Backup"],
+    ["ToneMod", "ToneMod"], ["Performance Tools", "Performance Tools"], ["Library & Backup", "Library & Backup"],
     ["Settings", "Settings"], ["Diagnostics", "Diagnostics"],
   ] as const;
   for (const [navigation, heading] of journeys) {
@@ -63,7 +63,7 @@ test("drags effects in the Rig Editor and both Test Rig chain surfaces", async (
     return window.__rigChainMoves;
   })).toEqual([[4, 10]]);
 
-  await page.getByRole("button", { name: "TonePilot", exact: true }).click();
+  await page.getByRole("button", { name: "ToneMod", exact: true }).click();
   await page.getByRole("tab", { name: /Test Rig Studio/i }).click();
   await page.evaluate(async () => {
     // @ts-expect-error Vite exposes source modules in the E2E development build.
@@ -92,16 +92,16 @@ test("drags effects in the Rig Editor and both Test Rig chain surfaces", async (
   })).toEqual([["lead-delay", 10], ["lead-delay", 10]]);
 });
 
-test("auditions from TonePilot with clear wording and edits a complete Test Rig", async ({ page }) => {
-  await page.getByRole("button", { name: "TonePilot", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "TonePilot", exact: true })).toBeVisible();
+test("auditions from ToneMod with clear wording and edits a complete Test Rig", async ({ page }) => {
+  await page.getByRole("button", { name: "ToneMod", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "ToneMod", exact: true })).toBeVisible();
   await page.evaluate(async () => {
     // @ts-expect-error Vite serves source modules to the E2E development build.
     const { useAppStore } = await import("/src/stores/app-store.ts");
     // @ts-expect-error Vite serves source modules to the E2E development build.
     const { testRigTemplates } = await import("/src/data/demo-data.ts");
     // @ts-expect-error Test-only instrumentation.
-    window.__tonePilotAuditions = [];
+    window.__toneModAuditions = [];
     const selected = {
       id: "e2e-tone", title: "E2E Amp", author: "QA", description: "Audition journey", captureType: "amp", detectedType: "amp",
       tags: ["amp"], rating: 4, downloads: 10, source: "Tone3000", imageColor: "#62deea", remoteId: 77, remoteKind: "tone-group",
@@ -114,7 +114,7 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
       toneLoading: false, toneModelLoading: false, auditionBusy: false, auditioningToneId: null, auditionError: null,
       auditionTone: async (tone: { id: string }) => {
         // @ts-expect-error Test-only instrumentation.
-        window.__tonePilotAuditions.push(tone.id);
+        window.__toneModAuditions.push(tone.id);
         useAppStore.setState({
           auditioningToneId: tone.id,
           testRigReturn: {
@@ -133,12 +133,14 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
     });
   });
 
+  const showControls = page.getByRole("button", { name: "Show audition controls", exact: true });
+  if (await showControls.isVisible()) await showControls.click();
   const audition = page.getByRole("button", { name: "Audition on HeadRush", exact: true });
   await expect(audition).toBeEnabled();
   await audition.click();
   await expect.poll(() => page.evaluate(() => {
     // @ts-expect-error Test-only instrumentation.
-    return window.__tonePilotAuditions;
+    return window.__toneModAuditions;
   })).toEqual(["e2e-tone"]);
 
   await expect(page.getByRole("button", { name: "Stop", exact: true })).toBeVisible();
@@ -159,10 +161,10 @@ test("auditions from TonePilot with clear wording and edits a complete Test Rig"
   await expect(editor.getByText("Compatible blocks")).toBeVisible();
 });
 
-test("loads the shared IR file picker styles when TonePilot is the first editor opened", async ({ page }) => {
+test("loads the shared IR file picker styles when ToneMod is the first editor opened", async ({ page }) => {
   // Begin on the dashboard without visiting Rig Editor. The picker is shared
   // by both workspaces and must own its styles instead of relying on route order.
-  await page.getByRole("button", { name: "TonePilot", exact: true }).click();
+  await page.getByRole("button", { name: "ToneMod", exact: true }).click();
   await page.getByRole("tab", { name: /Test Rig Studio/i }).click();
   await page.getByRole("button", { name: /Full editor/i }).click();
 
@@ -595,7 +597,7 @@ test("keeps primary navigation usable in a phone-sized viewport", async ({ page 
   await expect(page.locator(".app")).not.toHaveClass(/app--mobile-nav-open/);
 
   await page.getByRole("button", { name: "Open navigation" }).click();
-  await page.getByRole("button", { name: "TonePilot", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "TonePilot", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "ToneMod", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "ToneMod", exact: true })).toBeVisible();
   await expect(page.locator("main")).toBeVisible();
 });

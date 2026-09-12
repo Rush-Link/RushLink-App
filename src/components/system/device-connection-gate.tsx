@@ -4,6 +4,7 @@ import { deviceApi } from "../../services/device-api";
 import { deviceErrorMessage } from "../../services/device-errors";
 import { useAppStore } from "../../stores/app-store";
 import { Badge, Button, Input, Select } from "../ui";
+import { isIpAddress, primaryConnectionAddress } from "../../domain/connection-address";
 
 type DeviceProfileId = "flex-prime" | "prime" | "core" | "custom";
 
@@ -21,10 +22,13 @@ export function DeviceConnectionGate() {
   const busy = useAppStore((state) => state.connectionBusy);
   const error = useAppStore((state) => state.connectionError);
   const savedAddress = useAppStore((state) => state.preferences.address);
+  const modelAddress = useAppStore((state) => state.preferences.modelAddress);
+  const savedFallback = useAppStore((state) => state.preferences.fallbackAddress);
+  const primaryAddress = primaryConnectionAddress(savedAddress, modelAddress);
   const connect = useAppStore((state) => state.connect);
   const setPreference = useAppStore((state) => state.setPreference);
-  const [address, setAddress] = useState(savedAddress);
-  const [profile, setProfile] = useState<DeviceProfileId>(() => profileForAddress(savedAddress));
+  const [address, setAddress] = useState(primaryAddress);
+  const [profile, setProfile] = useState<DeviceProfileId>(() => profileForAddress(primaryAddress));
   const [advanced, setAdvanced] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [discoveryError, setDiscoveryError] = useState<string | null>(null);
@@ -33,14 +37,16 @@ export function DeviceConnectionGate() {
   const failure = discoveryError ?? error;
 
   useEffect(() => {
-    setAddress(savedAddress);
-    setProfile(profileForAddress(savedAddress));
-  }, [savedAddress]);
+    setAddress(primaryAddress);
+    setProfile(profileForAddress(primaryAddress));
+  }, [primaryAddress]);
 
   const submit = (target = address) => {
     const normalized = target.trim();
     if (!normalized || busy) return;
     setPreference("address", normalized);
+    if (profileForAddress(normalized) !== "custom") setPreference("modelAddress", normalized);
+    if (isIpAddress(normalized)) setPreference("fallbackAddress", normalized);
     void connect(normalized);
   };
 
@@ -48,6 +54,7 @@ export function DeviceConnectionGate() {
     setProfile(next);
     const known = DEVICE_PROFILES.find((candidate) => candidate.id === next);
     if (known) setAddress(known.address);
+    else setAddress(savedFallback ?? (isIpAddress(savedAddress) ? savedAddress : ""));
   };
 
   const discover = async () => {

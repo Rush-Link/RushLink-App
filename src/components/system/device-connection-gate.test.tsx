@@ -21,6 +21,20 @@ describe("device connection recovery", () => {
 
   const openAdvanced = () => fireEvent.click(screen.getByRole("button", { name: /Check advanced settings/i }));
 
+  it.each(["headrushflexprime.local", "headrushprime.local", "headrushcore.local"])("tries %s before offering the saved IP", async (modelAddress) => {
+    const connect = vi.fn().mockResolvedValue(undefined);
+    useAppStore.setState(state => ({ connect, preferences: { ...state.preferences, address: "http://192.168.1.129", modelAddress, fallbackAddress: undefined } }));
+    render(<DeviceConnectionGate/>);
+    expect(screen.getByText(modelAddress)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Connect to your device" }));
+    expect(connect).toHaveBeenLastCalledWith(modelAddress);
+    openAdvanced();
+    fireEvent.change(screen.getByRole("combobox", { name: "HeadRush model" }), { target: { value: "custom" } });
+    expect(screen.getByRole("textbox", { name: "Custom HeadRush address" })).toHaveValue("http://192.168.1.129");
+    fireEvent.click(screen.getByRole("button", { name: "Connect to your device" }));
+    expect(connect).toHaveBeenLastCalledWith("http://192.168.1.129");
+  });
+
   it("explains an empty discovery result and leaves manual recovery available", async () => {
     vi.spyOn(deviceApi, "discover").mockResolvedValue([]);
     render(<DeviceConnectionGate/>);

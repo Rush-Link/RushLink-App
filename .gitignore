@@ -9,7 +9,8 @@ coverage-all/
 playwright-report/
 test-results/
 .idea/
-.vscode/
+.vscode/*
+!.vscode/tasks.json
 
 # Credentials and signing material
 .env

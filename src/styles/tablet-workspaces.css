@@ -1,0 +1,234 @@
+/* Tablet ergonomics follow the shell mode, including large touch tablets.
+   Container queries also account for the expanded navigation rail. */
+.app--tablet .app-content { container: tablet-workspace / inline-size; }
+.app.app--tablet.app--collapsed > .sidebar,
+.app.app--tablet:not(.app--collapsed) > .sidebar { position: relative; inset: auto; width: auto; transform: none; }
+/* Touch users cannot hover for icon titles. Keep short labels in the rail. */
+.app.app--tablet.app--collapsed .sidebar__nav > button,
+.app.app--tablet.app--collapsed .sidebar__support { flex-direction: column; gap: 3px; height: 56px; min-height: 56px; }
+.app.app--tablet.app--collapsed .sidebar__nav > button > span,
+.app.app--tablet.app--collapsed .sidebar__support-label { display: block; max-width: 100%; font-size: 11px; line-height: 14px; letter-spacing: 0; }
+.app.app--tablet.app--collapsed .sidebar__support-external { position: absolute; top: 6px; right: 4px; width: 10px; height: 10px; margin-left: 0; }
+.app.app--tablet.app--collapsed .nav-section { display: none; }
+.app--tablet .sidebar__nav { overscroll-behavior-y: contain; }
+:is(.app--tablet, .app--phone) .page { padding: 18px 20px 28px; }
+:is(.app--tablet, .app--phone) .page-title, :is(.app--tablet, .app--phone) .overview-heading { gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .page-title > div:first-child, :is(.app--tablet, .app--phone) .overview-heading > div:first-child { flex: 1 1 360px; min-width: 0; }
+:is(.app--tablet, .app--phone) .page-title__actions, :is(.app--tablet, .app--phone) .overview-heading__actions { flex-wrap: wrap; gap: 8px; }
+:is(.app--tablet, .app--phone) .page-title h1, :is(.app--tablet, .app--phone) .overview-heading h1 { font-size: 25px; }
+:is(.app--tablet, .app--phone) .page-title .eyebrow { display: none; }
+:is(.app--tablet, .app--phone) .page-title p { max-width: 65ch; }
+
+/* Keep touch targets generous without enlarging decorative icons. */
+:is(.app--tablet, .app--phone) :is(.ui-button, .icon-button, .ui-input, .ui-select, .tabs button, .workspace-panel-toggle) { min-height: 44px; }
+:is(.app--tablet, .app--phone) :is(.icon-button, .tabs button) { min-width: 44px; flex-shrink: 0; }
+:is(.app--tablet, .app--phone) :is(.library-filter-pills button, .tone-type-chips button, .tone-tag-filter button,
+  .tone-filter-actions > button, .tp-popular-tags button, .template-tabs button,
+  .test-rig-heading > button, .tone-model-choice, .signal-node-buttons button,
+  .drum-transport-secondary button, .eq-power, .stagehand-choice-row button,
+  .rig-picker-menu button, .tone-metadata summary) { min-height: 44px; min-width: 44px; }
+:is(.app--tablet, .app--phone) input[type="range"] { min-height: 44px; }
+.app:is(.app--tablet, .app--phone) .switch.switch { flex: none; width: 52px; min-width: 52px; height: 44px; min-height: 44px; border: 0; background: transparent; }
+:is(.app--tablet, .app--phone) .switch::before { content: ""; position: absolute; left: 4px; right: 4px; top: 10px; height: 22px; border: 1px solid #45546a; border-radius: 13px; background: #17202c; }
+.app:is(.app--tablet, .app--phone) .switch.switch span { top: 50%; left: 8px; width: 17px; height: 17px; margin: 0; transform: translateY(-50%); z-index: 1; }
+:is(.app--tablet, .app--phone) .switch--on::before { border-color: rgba(var(--cyan-rgb), .58); background: rgba(var(--cyan-rgb), .2); }
+.app:is(.app--tablet, .app--phone) .switch.switch--on span { transform: translate(20px, -50%); }
+
+/* Prevent intrinsic grid widths from pushing the editor and its Save action
+   beyond the viewport when the inspector is opened. */
+:is(.app--tablet, .app--phone) :is(.editor-page, .editor-workspace, .chain-panel, .inspector) { min-width: 0; }
+:is(.app--tablet, .app--phone) .editor-page { grid-template-columns: minmax(0, 1fr); }
+:is(.app--tablet, .app--phone) .chain-panel { padding: 16px; }
+:is(.app--tablet, .app--phone) .chain-panel__header { flex-wrap: wrap; gap: 12px; }
+:is(.app--tablet, .app--phone) .editor-workspace-tabs button { min-height: 44px; padding-inline: 6px; white-space: normal; }
+:is(.app--tablet, .app--phone) .signal-node-buttons button { gap: 8px; flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .block-node__power { width: 44px; height: 44px; min-width: 44px; min-height: 44px; top: 0; right: 0; margin: 0; }
+:is(.app--tablet, .app--phone) .block-node__icon { margin-left: 0; margin-right: auto; }
+:is(.app--tablet, .app--phone) .history-empty { min-height: 100px; padding: 16px; }
+.tablet-inspector-heading { display: none; }
+:is(.app--tablet, .app--phone) .tablet-inspector-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; position: sticky; top: 0; z-index: 3; background: #101923; border-bottom: 1px solid var(--line); }
+
+/* Catalogue content takes priority over repeated provider and library labels. */
+:is(.app--tablet, .app--phone) .library-section-switcher { margin: 0 0 10px; }
+:is(.app--tablet, .app--phone) .library-section-switcher > button { min-height: 48px; padding-block: 6px; }
+:is(.app--tablet, .app--phone) .library-section-switcher small { display: none; }
+:is(.app--tablet, .app--phone) .library-summary-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+:is(.app--tablet, .app--phone) .library-summary-card { grid-template-columns: minmax(0, 1fr); padding: 7px 10px; }
+:is(.app--tablet, .app--phone) .library-summary-card__icon, :is(.app--tablet, .app--phone) .library-summary-card em { display: none; }
+:is(.app--tablet, .app--phone) .library-summary-card > span:last-child { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+:is(.app--tablet, .app--phone) .library-control-bar { grid-template-columns: auto minmax(140px, 1fr) auto; gap: 8px; }
+:is(.app--tablet, .app--phone) .library-search { grid-column: 1 / -1; }
+:is(.app--tablet, .app--phone) .library-filter-pills { grid-row: 2; justify-self: start; }
+:is(.app--tablet, .app--phone) .library-sort { grid-row: 2; }
+:is(.app--tablet, .app--phone) .library-control-bar > div:last-child { grid-row: 2; }
+:is(.app--tablet, .app--phone) .rig-library-grid:not(.rig-library-grid--list) { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+:is(.app--tablet, .app--phone) .rig-library-card { grid-template-rows: 56px auto auto; }
+:is(.app--tablet, .app--phone) .rig-library-card__visual .rig-favorite { width: 44px; height: 44px; top: 5px; right: 5px; }
+:is(.app--tablet, .app--phone) .rig-library-card__actions { grid-template-columns: minmax(0, 1fr) repeat(3, 44px); gap: 3px; padding: 6px; }
+:is(.app--tablet, .app--phone) .rig-library-card__actions .icon-button { width: 44px; height: 44px; }
+:is(.app--tablet, .app--phone) .rig-library-card__primary-actions { min-width: 0; grid-template-columns: repeat(2, minmax(0, 1fr)); padding-right: 3px; }
+:is(.app--tablet, .app--phone) .rig-library-card__primary-actions .ui-button { padding-inline: 3px; }
+:is(.app--tablet, .app--phone) .rig-library-card:hover { transform: none; }
+:is(.app--tablet, .app--phone) .setlist-run-columns, :is(.app--tablet, .app--phone) .setlist-run-row { grid-template-columns: 32px minmax(0, 1.2fr) 60px minmax(0, 1fr) 188px; }
+:is(.app--tablet, .app--phone) .setlist-run-row__position { cursor: default; }
+:is(.app--tablet, .app--phone) .setlist-run-row__actions { grid-column: 5; grid-row: 1; gap: 4px; }
+:is(.app--tablet, .app--phone) .setlist-run-row > p { grid-column: 4; grid-row: 1; }
+:is(.app--tablet, .app--phone) .setlist-run-row__tempo { display: block; }
+:is(.app--tablet, .app--phone) .tone-page .page-title__actions > .badge { display: none; }
+:is(.app--tablet, .app--phone) .tone-search-context small, :is(.app--tablet, .app--phone) .tone-catalogue-progress > div:first-child small { display: none; }
+:is(.app--tablet, .app--phone) .tone-search-context { flex-direction: row; align-items: center; flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .tone-catalogue-progress { flex-direction: row; align-items: center; flex-wrap: wrap; gap: 8px; padding: 8px 10px; }
+:is(.app--tablet, .app--phone) .tone-catalogue-progress .tone-provider-pages { width: auto; margin-left: auto; }
+:is(.app--tablet, .app--phone) .tone-catalogue-progress .tone-provider-pages > span { min-width: 0; display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: transparent; }
+:is(.app--tablet, .app--phone) .tone-provider-pages b { display: none; }
+:is(.app--tablet, .app--phone) .tone-card__visual { height: 72px; }
+:is(.app--tablet, .app--phone) .tone-card__visual > button { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+:is(.app--tablet, .app--phone) .tone-card__visual > button > svg { position: static; width: 18px; height: 18px; opacity: 1; }
+:is(.app--tablet, .app--phone) .tone-card__body { padding: 10px; }
+:is(.app--tablet, .app--phone) .tp-studio-hero { padding: 14px 16px; flex-wrap: wrap; gap: 12px; }
+:is(.app--tablet, .app--phone) .tp-studio-hero h2 { font-size: 20px; }
+
+/* Settings and file browsing use the available content width. */
+:is(.app--tablet, .app--phone) .device-path-bar { grid-template-columns: auto minmax(120px, 160px) minmax(0, 1fr) auto; }
+:is(.app--tablet, .app--phone) .device-path-bar > * { min-width: 0; }
+:is(.app--tablet, .app--phone) .device-index-head h2 { overflow-wrap: anywhere; }
+:is(.app--tablet, .app--phone) .backup-hero { padding: 14px 16px; gap: 12px; }
+:is(.app--tablet, .app--phone) .backup-page .tabs { flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .backup-orbit { width: 44px; height: 44px; }
+:is(.app--tablet, .app--phone) .restore-card__title { flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .restore-card__actions { gap: 6px; }
+:is(.app--tablet, .app--phone) .settings-page .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+:is(.app--tablet, .app--phone) .settings-page .settings-nav { position: static; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+:is(.app--tablet, .app--phone) .settings-page .settings-nav button { grid-template-columns: 24px minmax(0, 1fr); height: auto; min-height: 48px; padding: 6px 8px; gap: 8px; }
+:is(.app--tablet, .app--phone) .settings-page .settings-nav button > svg:first-child { padding: 3px; }
+:is(.app--tablet, .app--phone) .settings-page .settings-nav button > svg:last-child { display: none; }
+:is(.app--tablet, .app--phone) .settings-page .settings-nav button:hover { transform: none; }
+:is(.app--tablet, .app--phone) .settings-nav button span { white-space: normal; }
+:is(.app--tablet, .app--phone) .settings-section__head, :is(.app--tablet, .app--phone) .settings-section__body { padding: 16px; }
+:is(.app--tablet, .app--phone) .settings-device-choices { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+:is(.app--tablet, .app--phone) .settings-device-choices > button { min-height: 96px; padding: 10px; }
+:is(.app--tablet, .app--phone) .smart-footswitch__actions { grid-template-columns: minmax(0, 1fr) 44px; }
+:is(.app--tablet, .app--phone) :is(.smart-footswitch__label, .assignment-mode-switch button, .assignment-primary-action,
+  .scene-state-switcher button, .scene-action-row button, .scene-browser-strip button) { min-height: 44px; }
+:is(.app--tablet, .app--phone) :is(.tp-segmented button, .tp-option-chips button, .audition-block > button,
+  .tp-test-set-tabs button, .tp-set-select) { min-height: 44px; min-width: 44px; }
+:is(.app--tablet, .app--phone) .settings-page .midi-settings-tabs button { min-height: 44px; }
+:is(.app--tablet, .app--phone) :is(.scene-state-switcher button, .scene-mode-buttons button, .scene-preset-trigger,
+  .scene-led-picker button, .assignment-color-grid button, .assignment-choice-list > button) { min-width: 44px; min-height: 44px; }
+:is(.app--tablet, .app--phone) .scene-mode-buttons { grid-template-columns: repeat(3, minmax(44px, 1fr)); }
+:is(.app--tablet, .app--phone) .visual-scene-chain { min-width: 1138px; }
+:is(.app--tablet, .app--phone) .visual-scene-row { grid-template-columns: repeat(7, minmax(154px, 1fr)); }
+:is(.app--tablet, .app--phone) .scene-led-picker { flex-wrap: wrap; }
+:is(.app--tablet, .app--phone) .scene-action-row > div { flex-wrap: wrap; gap: 6px; }
+:is(.app--tablet, .app--phone) .tp-studio-hero { align-items: center; }
+:is(.app--tablet, .app--phone) .tp-studio-hero > div:first-child { flex: 1 1 350px; }
+:is(.app--tablet, .app--phone) .tp-studio-hero .eyebrow { display: none; }
+:is(.app--tablet, .app--phone) .tp-safety-strip { padding: 10px 12px; gap: 10px; }
+:is(.app--tablet, .app--phone) .tp-safety-strip > .badge { display: none; }
+:is(.app--tablet, .app--phone) .audition-panel__head { position: sticky; top: -1px; z-index: 3; padding-block: 12px; background: #0e151f; }
+
+/* Performance targets remain legible inside the pad; MIDI detail belongs to
+   layout editing and can be hidden during performance. */
+:is(.app--tablet, .app--phone) .stagehand-v2 .live-pad strong { font-size: 13px; }
+.app:is(.app--tablet, .app--phone) .stagehand-v2 .live-pad small { font-size: 11px; }
+:is(.app--tablet, .app--phone) .stagehand-v2 .live-pad__meta { align-items: end; font-size: 11px; letter-spacing: 0; }
+:is(.app--tablet, .app--phone) .stagehand-v2 .live-pad__meta b { max-width: 100%; line-height: 1.2; }
+:is(.app--tablet, .app--phone) .live-page--performance .live-pad__meta i { display: none; }
+:is(.app--tablet, .app--phone) .live-page--performance .live-hint { display: none; }
+:is(.app--tablet, .app--phone) .live-toolbar { flex-wrap: wrap; gap: 12px; }
+:is(.app--tablet, .app--phone) .live-toolbar__actions { min-width: 0; max-width: 100%; flex-wrap: wrap; gap: 6px; }
+:is(.app--tablet, .app--phone) .performance-status-strip .performance-status-note { display: none; }
+:is(.app--tablet, .app--phone) .device-tuner .tuner-control--mode .mode-buttons button,
+:is(.app--tablet, .app--phone) .device-tuner .tuner-control--reference .ui-select { min-height: 44px; }
+.performance-tool-nav { display: none; }
+.performance-tool-nav[hidden] { display: none; }
+:is(.app--tablet, .app--phone) .performance-tool-nav { display: flex; gap: 6px; padding: 5px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; background: #0a1018; }
+:is(.app--tablet, .app--phone) .performance-tool-nav button { flex: 1; min-height: 44px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--muted); cursor: pointer; }
+:is(.app--tablet, .app--phone) .performance-tool-nav button[aria-pressed="true"] { border-color: #3b7d87; background: #152631; color: #e3fbff; }
+:is(.app--tablet, .app--phone) .performance-tool-nav small { margin-left: 6px; color: var(--green); }
+.performance-tool-panel[hidden] { display: none; }
+
+/* Keep EQ status outside the plot and frequency labels when navigation reduces
+   the workspace width. Its empty state must also wrap within the chart. */
+:is(.app--tablet, .app--phone) .global-eq-stage__summary { position: static; flex-wrap: wrap; gap: 12px; padding: 10px 12px; }
+:is(.app--tablet, .app--phone) .global-eq-stage .graphic-eq { display: flex; flex-direction: column; }
+:is(.app--tablet, .app--phone) .global-eq-stage .eq-graph-status { position: static; order: 2; padding: 8px 12px; }
+:is(.app--tablet, .app--phone) .global-eq-stage .eq-graph-status span { display: none; }
+:is(.app--tablet, .app--phone) .global-eq-stage .eq-graph-status strong { white-space: normal; line-height: 1.5; }
+:is(.app--tablet, .app--phone) .global-eq-stage .eq-axis { margin-top: 0; padding: 0 12px 8px; gap: 6px; }
+:is(.app--tablet, .app--phone) .global-eq-stage .eq-axis span { white-space: nowrap; }
+:is(.app--tablet, .app--phone) .global-eq-stage .graphic-eq > p { position: static; order: 3; margin: 0; padding: 8px 12px 12px; transform: none; white-space: normal; }
+
+@container tablet-workspace (max-width: 900px) {
+  :is(.app--tablet, .app--phone) .setlist-studio { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .editor-workspace { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .editor-workspace > .inspector { order: -1; max-height: 52dvh; overflow: auto; border-left: 0; border-bottom: 1px solid var(--line); }
+  :is(.app--tablet, .app--phone) .chain-routing-picker { flex-wrap: wrap; min-width: 0; }
+  :is(.app--tablet, .app--phone) .live-workspace, :is(.app--tablet, .app--phone) .tp-studio-grid { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .tone-layout { display: flex; flex-direction: column; }
+  :is(.app--tablet, .app--phone) .tone-layout > .audition-panel { order: -1; width: 100%; max-height: 65dvh; overflow: auto; position: static; }
+  :is(.app--tablet, .app--phone) .tone-layout > .tone-browser { width: 100%; min-width: 0; }
+  :is(.app--tablet, .app--phone) .device-index-layout { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .device-index-sidebar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
+  :is(.app--tablet, .app--phone) .device-index-sidebar .section-heading { display: none; }
+  :is(.app--tablet, .app--phone) .device-index-sidebar > button { flex: 1 1 110px; width: auto; margin: 0; min-height: 44px; }
+  :is(.app--tablet, .app--phone) .device-index-note { width: 100%; margin-top: 4px; }
+  :is(.app--tablet, .app--phone) .drum-performance-surface { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :is(.app--tablet, .app--phone) .drummer-phrase { grid-column: 1 / -1; grid-row: 2; min-height: 150px; }
+  :is(.app--tablet, .app--phone) .drum-studio-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px; }
+  :is(.app--tablet, .app--phone) .drum-session-summary { grid-column: 1 / -1; grid-row: 2; width: 100%; }
+  :is(.app--tablet, .app--phone) .drummer-toolbar__actions { grid-column: 2; grid-row: 1; }
+  :is(.app--tablet, .app--phone) .footswitch-board--smart { grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); }
+  :is(.app--tablet, .app--phone) .scene-behavior-panel { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .rig-library-grid--list .rig-library-card { grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: auto auto; }
+  :is(.app--tablet, .app--phone) .rig-library-grid--list .rig-library-card__content { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  :is(.app--tablet, .app--phone) .rig-library-grid--list .rig-library-card__actions { grid-column: 1 / -1; border-top: 1px solid var(--line); }
+}
+
+@container tablet-workspace (max-width: 650px) {
+  :is(.app--tablet, .app--phone) .page { padding-inline: 14px; }
+  :is(.app--tablet, .app--phone) .global-eq-head { flex-direction: column; }
+  :is(.app--tablet, .app--phone) .global-eq-head__actions { flex-wrap: wrap; gap: 8px; }
+  :is(.app--tablet, .app--phone) .eq-master-control { grid-template-columns: minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .eq-band-grid { grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); }
+  :is(.app--tablet, .app--phone) .setlist-run-columns { display: none; }
+  :is(.app--tablet, .app--phone) .setlist-run-row { grid-template-columns: 28px minmax(0, 1fr) 60px; row-gap: 8px; padding-block: 12px; }
+  :is(.app--tablet, .app--phone) .setlist-run-row > p { grid-column: 2 / -1; grid-row: 2; margin: 0; }
+  :is(.app--tablet, .app--phone) .setlist-run-row__actions { grid-column: 2 / -1; grid-row: 3; justify-content: flex-end; }
+  :is(.app--tablet, .app--phone) .library-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :is(.app--tablet, .app--phone) .library-control-bar { grid-template-columns: minmax(0, 1fr) auto; }
+  :is(.app--tablet, .app--phone) .library-filter-pills { grid-column: 1 / -1; }
+  :is(.app--tablet, .app--phone) .library-sort, :is(.app--tablet, .app--phone) .library-control-bar > div:last-child { grid-row: 3; }
+  :is(.app--tablet, .app--phone) .tone-search-row { flex-wrap: wrap; }
+  :is(.app--tablet, .app--phone) .tone-search-row .search-input { flex-basis: 100%; }
+  :is(.app--tablet, .app--phone) .tone-filter-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  :is(.app--tablet, .app--phone) .device-path-bar { grid-template-columns: auto minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .device-path-bar > .icon-button { grid-column: 1; grid-row: 1; }
+  :is(.app--tablet, .app--phone) .device-path-bar > .ui-input { grid-column: 2; grid-row: 1; }
+  :is(.app--tablet, .app--phone) .device-path-bar > .ui-select { grid-column: 1; grid-row: 2; }
+  :is(.app--tablet, .app--phone) .device-path-bar > .ui-button { grid-column: 2; grid-row: 2; justify-self: end; }
+  :is(.app--tablet, .app--phone) .backup-toolbar { flex-wrap: wrap; }
+  :is(.app--tablet, .app--phone) .backup-toolbar .search-input { flex-basis: 100%; }
+  :is(.app--tablet, .app--phone) .restore-card { grid-template-columns: 20px minmax(0, 1fr); }
+  :is(.app--tablet, .app--phone) .restore-card__actions { grid-column: 2; flex-wrap: wrap; }
+  :is(.app--tablet, .app--phone) .overview-lower { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Radix dialogs are portalled outside the app, so use the same media query as
+   the shell. Fixed header/footer plus a scrolling body keep actions reachable. */
+@media (max-width: 760px), (min-width: 761px) and (max-width: 1280px), (min-width: 600px) and (pointer: coarse) {
+  .dialog { display: flex; flex-direction: column; width: calc(100vw - 32px); max-height: calc(100dvh - 32px); }
+  .dialog__header, .dialog__footer { flex: none; padding: 14px 18px; }
+  .dialog__header { gap: 12px; }
+  .dialog__body { min-height: 0; max-height: none; padding: 16px 18px; overflow: auto; }
+  .dialog__footer { flex-wrap: wrap; gap: 8px; }
+  .dialog :is(.ui-button, .icon-button, .ui-input, .ui-select, .tabs button) { min-height: 44px; }
+  .dialog .icon-button { min-width: 44px; flex: none; }
+  .dialog .tp-editor-categories button { min-width: 44px; min-height: 44px; }
+  .dialog .switch.switch { flex: none; width: 52px; min-width: 52px; height: 44px; min-height: 44px; border: 0; background: transparent; }
+  .dialog .switch::before { content: ""; position: absolute; left: 4px; right: 4px; top: 10px; height: 22px; border: 1px solid #45546a; border-radius: 13px; background: #17202c; }
+  .dialog .switch.switch span { top: 50%; left: 8px; width: 17px; height: 17px; margin: 0; transform: translateY(-50%); z-index: 1; }
+  .dialog .switch--on::before { border-color: rgba(var(--cyan-rgb), .58); background: rgba(var(--cyan-rgb), .2); }
+  .dialog .switch.switch--on span { transform: translate(20px, -50%); }
+  .dialog input[type="range"] { min-height: 44px; }
+}

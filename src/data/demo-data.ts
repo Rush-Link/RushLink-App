@@ -36,7 +36,7 @@ const slotEqualizer = (): Parameter[] => [
 
 /**
  * Editable controls exposed by the Flex Prime Neural Amp Modeler host.
- * LoadedClone is deliberately absent: TonePilot owns the temporary audition
+ * LoadedClone is deliberately absent: ToneMod owns the temporary audition
  * file while the user remains free to shape the host around it.
  */
 export const testRigNamControls = (): Parameter[] => [
@@ -166,7 +166,7 @@ export const actionPalette: LiveButtonTemplate[] = [
 ];
 
 export const cloudTones: CloudTone[] = [
-  { id: "t-1", title: "Brit 800 — Hot Mod", author: "TonePilot", description: "Dynamic British high-gain amp capture with a tight low end.", captureType: "amp", detectedType: "amp", tags: ["British", "High gain", "Amp"], rating: 4.9, downloads: 12400, source: "Tone3000", imageColor: "#f38b4d" },
+  { id: "t-1", title: "Brit 800 — Hot Mod", author: "ToneMod", description: "Dynamic British high-gain amp capture with a tight low end.", captureType: "amp", detectedType: "amp", tags: ["British", "High gain", "Amp"], rating: 4.9, downloads: 12400, source: "Tone3000", imageColor: "#f38b4d" },
   { id: "t-2", title: "Nashville Sparkle", author: "HarmonicHouse", description: "Complete clean combo chain with cabinet and open-air detail.", captureType: "amp+ir", detectedType: "amp+ir", tags: ["Clean", "Combo", "Amp + IR"], rating: 4.8, downloads: 8300, source: "Tone3000", imageColor: "#47c9c3" },
   { id: "t-3", title: "Green Screamer 808", author: "PedalVault", description: "Classic mid-forward overdrive pedal capture.", captureType: "effect", detectedType: "effect", tags: ["Overdrive", "Pedal", "Effect"], rating: 4.7, downloads: 21600, source: "Tone3000", imageColor: "#75c665" },
   { id: "t-4", title: "Oversized V30 — Ribbon", author: "CabLab", description: "Dark ribbon microphone impulse response for modern rhythm.", captureType: "ir", detectedType: "ir", tags: ["4×12", "V30", "IR"], rating: 4.6, downloads: 6800, source: "HeadRush Cloud", imageColor: "#8e75db" },

@@ -26,6 +26,18 @@ function resetStore() {
 describe("application store action matrix", () => {
   beforeEach(() => { resetStore(); vi.restoreAllMocks(); });
 
+  it.each(["headrushflexprime.local", "headrushprime.local", "headrushcore.local"])("uses %s for implicit reconnect while keeping IP fallback explicit", async (modelAddress) => {
+    vi.spyOn(deviceApi, "isNative").mockReturnValue(false);
+    const connect = vi.spyOn(deviceApi, "connect").mockRejectedValue(new Error("hostname unavailable"));
+    useAppStore.setState(state => ({ preferences: { ...state.preferences, address: "192.168.1.129", modelAddress, fallbackAddress: undefined } }));
+    await useAppStore.getState().connect();
+    expect(connect.mock.calls).toEqual([[modelAddress]]);
+    connect.mockResolvedValue({ device: demoDevice, capabilities: demoCapabilities });
+    await useAppStore.getState().connect("192.168.1.129");
+    expect(connect).toHaveBeenLastCalledWith("192.168.1.129");
+    expect(useAppStore.getState().preferences.fallbackAddress).toBe("192.168.1.129");
+  });
+
   it("updates shell, preference and focused-control state", () => {
     const store = useAppStore.getState();
     store.setPage("live"); store.toggleSidebar(); store.setPreference("density", "stage");
@@ -223,6 +235,7 @@ describe("application store action matrix", () => {
 
     store.deleteLiveStage();
     expect(useAppStore.getState().liveStages).toHaveLength(1);
+    store.setLiveLocked(false);
     store.duplicateLiveStage();
     const duplicateId = useAppStore.getState().selectedLiveStageId;
     store.deleteLiveStage();

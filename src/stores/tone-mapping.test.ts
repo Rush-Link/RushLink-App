@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { mapHeadRushCloud, mapTone3000, mapTone3000Models, parseHeadRushCloudPage, parseTone3000Page, replaceProviderTones } from "./app-store";
 
-describe("TonePilot live service mapping", () => {
+describe("ToneMod live service mapping", () => {
   it("maps a public Tone3000 group and preserves its remote group id", () => {
     const tones = mapTone3000({ success: true, result: { tones: [{ id: 86614, title: "Dual Amp", gear: "amp-cab", published_at: "2026-08-14T10:30:00Z", downloads_count: 473, favorites_count: 17, images: ["https://example.test/tone.jpg"], tags: [{ name: "boutique" }], makes: [{ name: "British 800" }], user: { display_name: "Maker" } }] } });
     expect(tones[0]).toMatchObject({ id: "t3k-86614", remoteId: 86614, remoteKind: "tone-group", source: "Tone3000", detectedType: "amp+ir", createdAt: "2026-08-14T10:30:00Z" });

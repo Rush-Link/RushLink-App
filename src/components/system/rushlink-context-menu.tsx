@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { deviceErrorDetail } from "../../services/device-errors";
+import { useShellNavigation } from "./shell-navigation";
 
 type StoreState = ReturnType<typeof useAppStore.getState>;
 
@@ -38,7 +39,7 @@ interface OpenMenu extends MenuModel {
 
 const PAGE_LABELS: Record<string, string> = {
   dashboard: "Overview", editor: "Rig Editor", rigs: "Rigs & Setlists", setlists: "Rigs & Setlists",
-  live: "StageHand", "tone-cloud": "TonePilot", tools: "Performance Tools", library: "Library & Backup",
+  live: "StageHand", "tone-cloud": "ToneMod", tools: "Performance Tools", library: "Library & Backup",
   settings: "Settings", diagnostics: "Diagnostics",
 };
 
@@ -140,12 +141,12 @@ export function buildRushLinkMenu(target: HTMLElement, state: StoreState): MenuM
     const tone = state.tones.find((item) => item.id === toneId);
     const favorite = state.favoriteToneIds.includes(toneId);
     return {
-      title: tone?.title ?? "TonePilot result", subtitle: tone ? `${tone.source} · ${tone.author}` : "Cloud tone",
+      title: tone?.title ?? "ToneMod result", subtitle: tone ? `${tone.source} · ${tone.author}` : "Cloud tone",
       accent: tone?.imageColor,
       items: [
         { id: "tone-configure", label: "Open in audition workspace", icon: SlidersHorizontal, disabled: !tone, action: () => { state.selectTone(toneId); state.setPage("tone-cloud"); } },
         { id: "tone-favorite", label: favorite ? "Remove from favourites" : "Add to favourites", icon: favorite ? HeartOff : Heart, disabled: !tone, action: () => state.toggleFavoriteTone(toneId) },
-        { id: "tonepilot", label: "Open TonePilot", icon: Cloud, dividerBefore: true, action: () => state.setPage("tone-cloud") },
+        { id: "tonemod", label: "Open ToneMod", icon: Cloud, dividerBefore: true, action: () => state.setPage("tone-cloud") },
         ...globalItems(state, true).map((item, index) => ({ ...item, dividerBefore: index === 0 || item.dividerBefore })),
       ],
     };
@@ -190,7 +191,7 @@ export function buildRushLinkMenu(target: HTMLElement, state: StoreState): MenuM
         ...globalItems(state, true).map((item, index) => ({ ...item, dividerBefore: index === 0 || item.dividerBefore })),
       ] : [
         { id: "test-block-add", label: "Add a compatible block", icon: Zap, action: () => contextual?.click() },
-        { id: "tonepilot", label: "Open TonePilot", icon: Cloud, dividerBefore: true, action: () => state.setPage("tone-cloud") },
+        { id: "tonemod", label: "Open ToneMod", icon: Cloud, dividerBefore: true, action: () => state.setPage("tone-cloud") },
         ...globalItems(state, true).map((item, index) => ({ ...item, dividerBefore: index === 0 || item.dividerBefore })),
       ],
     };
@@ -206,11 +207,11 @@ export function buildRushLinkMenu(target: HTMLElement, state: StoreState): MenuM
       items: button ? [
         { id: "stage-trigger", label: "Trigger control", detail: "Same action as a stage tap", icon: RadioTower, disabled: Boolean(contextual?.getAttribute("aria-disabled") === "true"), action: () => triggerStageControl(state, button) },
         { id: "stage-copy-midi", label: "Copy MIDI mapping", detail: `Channel ${button.midi.channel} · value ${button.midi.value}`, icon: Clipboard, action: () => clipboardWrite(`${button.midi.type.toUpperCase()} ${button.midi.number} · CH ${button.midi.channel} · VALUE ${button.midi.value}`) },
-        { id: "stage-remove", label: "Remove from stage", icon: Trash2, danger: true, dividerBefore: true, action: () => { if (window.confirm(`Remove “${button.label}” from this stage?`)) state.removeLiveButton(button.id); } },
+        { id: "stage-remove", label: "Remove from stage", disabled: state.liveLayout.locked, icon: Trash2, danger: true, dividerBefore: true, action: () => { if (window.confirm(`Remove “${button.label}” from this stage?`)) state.removeLiveButton(button.id); } },
         { id: "stagehand", label: "Open StageHand", icon: RadioTower, dividerBefore: true, action: () => state.setPage("live") },
         ...globalItems(state, true).map((item, itemIndex) => ({ ...item, dividerBefore: itemIndex === 0 || item.dividerBefore })),
       ] : [
-        { id: "stage-add", label: "Add a StageHand control", icon: Zap, action: () => contextual?.click() },
+        { id: "stage-add", label: "Add a StageHand control", disabled: state.liveLayout.locked, icon: Zap, action: () => contextual?.click() },
         { id: "stagehand", label: "Open StageHand", icon: RadioTower, dividerBefore: true, action: () => state.setPage("live") },
         ...globalItems(state, true).map((item, itemIndex) => ({ ...item, dividerBefore: itemIndex === 0 || item.dividerBefore })),
       ],
@@ -276,12 +277,17 @@ export function buildRushLinkMenu(target: HTMLElement, state: StoreState): MenuM
 export function RushLinkContextMenu() {
   const [menu, setMenu] = useState<OpenMenu | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { collapsed, toggle } = useShellNavigation();
 
   useEffect(() => {
     const open = (event: MouseEvent) => {
       event.preventDefault();
       const target = event.target instanceof HTMLElement ? event.target : document.body;
-      const model = buildRushLinkMenu(target, useAppStore.getState());
+      // Only navigation presentation/actions use the shell's effective state;
+      // device and workspace commands retain the current application state.
+      const model = buildRushLinkMenu(target, {
+        ...useAppStore.getState(), sidebarCollapsed: collapsed, toggleSidebar: toggle,
+      });
       const width = 304;
       const estimatedHeight = Math.min(520, 92 + model.items.length * 49);
       setMenu({ ...model, x: Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)), y: Math.max(8, Math.min(event.clientY, window.innerHeight - estimatedHeight - 8)) });
@@ -293,15 +299,15 @@ export function RushLinkContextMenu() {
     document.addEventListener("pointerdown", close, true);
     window.addEventListener("blur", closeAlways);
     window.addEventListener("resize", closeAlways);
-    document.addEventListener("scroll", closeAlways, true);
+    document.addEventListener("scroll", close, true);
     return () => {
       document.removeEventListener("contextmenu", open, true);
       document.removeEventListener("pointerdown", close, true);
       window.removeEventListener("blur", closeAlways);
       window.removeEventListener("resize", closeAlways);
-      document.removeEventListener("scroll", closeAlways, true);
+      document.removeEventListener("scroll", close, true);
     };
-  }, []);
+  }, [collapsed, toggle]);
 
   if (!menu) return null;
   const execute = (item: RushLinkMenuItem) => {
@@ -321,7 +327,7 @@ export function RushLinkContextMenu() {
     }
   };
 
-  return createPortal(<div ref={menuRef} className={`rush-context-menu${menu.compactHeader ? " rush-context-menu--compact-head" : ""}`} role="menu" aria-label={`${menu.title} actions`} tabIndex={-1} style={{ left: menu.x, top: menu.y, "--context-accent": menu.accent || "var(--cyan)" } as React.CSSProperties} onKeyDown={keyboard}>
+  return createPortal(<div ref={menuRef} className={`rush-context-menu${menu.compactHeader ? " rush-context-menu--compact-head" : ""}`} role="menu" aria-label={`${menu.title} actions`} tabIndex={-1} style={{ left: menu.x, top: menu.y, maxHeight: `calc(100vh - ${menu.y + 8}px)`, "--context-accent": menu.accent || "var(--cyan)" } as React.CSSProperties} onKeyDown={keyboard}>
     <header><span className="rush-context-menu__mark"><Zap size={15}/></span><span><strong>{menu.title}</strong><small>{menu.subtitle}</small></span></header>
     <div className="rush-context-menu__items">
       {menu.items.map((item) => { const Icon = item.icon; return <button key={item.id} type="button" role="menuitem" disabled={item.disabled} className={`${item.dividerBefore ? "divider" : ""}${item.danger ? " danger" : ""}`} onClick={() => execute(item)}>

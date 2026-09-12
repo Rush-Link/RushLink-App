@@ -40,7 +40,7 @@ const workspaces: WorkspaceCase[] = [
     [".stagehand-grid", "display", "grid"],
     [".live-pad", "display", "flex"],
   ] },
-  { id: "tone-cloud", label: "TonePilot", ready: ".tone-page", checks: [
+  { id: "tone-cloud", label: "ToneMod", ready: ".tone-page", checks: [
     [".tone-provider-tabs", "display", "grid"],
     [".tone-layout", "display", "grid"],
     [".tone-search-row", "display", "flex"],

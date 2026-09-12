@@ -8,7 +8,7 @@ export default defineConfig({
     restoreMocks: true,
     unstubEnvs: true,
     unstubGlobals: true,
-    exclude: ["e2e/**", "node_modules/**", "dist/**"],
+    exclude: ["e2e/**", "node_modules/**", "dist/**", "release-artifacts/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "html"],
