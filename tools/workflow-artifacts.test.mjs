@@ -5,6 +5,15 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dependencyInstallMatches, parseChecksums } from "./workflow-artifacts.mjs";
 
+test.skipIf(process.platform !== "win32")("Phone and tablet runtimes preserve separate sessions and correct screen sizes", () => {
+  const script = join(dirname(fileURLToPath(import.meta.url)), "test-android-runtime.ps1");
+  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {
+    encoding: "utf8", timeout: 15000, windowsHide: true,
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+}, 20000);
+
 test.skipIf(process.platform !== "win32")("Android setup preserves isolation and rejects invalid tools and licenses", () => {
   const script = join(dirname(fileURLToPath(import.meta.url)), "test-android-tools.ps1");
   const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {

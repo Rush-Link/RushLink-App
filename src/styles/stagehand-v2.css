@@ -2,6 +2,33 @@
   --stage-panel: #10161f;
   --stage-edge: #273243;
 }
+.stagehand-header { display: contents; }
+
+/* Reserve a bounded workspace below the controls, even in short landscape
+   windows. Each region scrolls its own content instead of growing the page. */
+.app:is(.app--tablet, .app--phone) .app-workspace:has(> .stagehand-v2) { height: 100%; min-height: 0; }
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) {
+  display: flex; flex-direction: column; height: 100%; min-height: 0; overflow: hidden;
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .stagehand-header {
+  display: block; flex: 0 1 auto; min-height: 0; max-height: 45%; overflow: auto;
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-workspace {
+  flex: 1; min-height: 0; grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr);
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-workspace:has(> .live-inspector:not([hidden])) {
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-board-wrap {
+  display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-board.stagehand-grid {
+  flex: 1; min-height: 0;
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-inspector {
+  min-height: 0; max-height: 100%; overflow: auto;
+}
+.app:is(.app--tablet, .app--phone) .stagehand-v2:not(.stagehand--fullscreen) .live-hint { display: none; }
 
 /* Performance fullscreen: only the pads and a compact escape/lock strip. */
 .app .stagehand-v2.stagehand--fullscreen {
@@ -14,9 +41,9 @@
 .app .stagehand--fullscreen .stagehand-screen-control { height: 44px; min-height: 44px; padding-block: 0; border: 0; background: transparent; font-size: 12px; }
 .app .stagehand--fullscreen .live-toolbar > div:first-child,
 .app .stagehand--fullscreen .live-toolbar__actions > :not(.stagehand-screen-control),
-.app .stagehand--fullscreen > .stagehand-stage-bar,
-.app .stagehand--fullscreen > .performance-strip,
-.app .stagehand--fullscreen > .stagehand-move-banner,
+.app .stagehand--fullscreen .stagehand-stage-bar,
+.app .stagehand--fullscreen .performance-strip,
+.app .stagehand--fullscreen .stagehand-move-banner,
 .app .stagehand--fullscreen .live-hint,
 .app .stagehand--fullscreen .live-inspector,
 .app .stagehand--fullscreen .live-pad__meta,
@@ -30,7 +57,7 @@
 .app .stagehand--fullscreen .stagehand-action-feedback { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .app .stagehand--fullscreen .live-workspace { flex: 1; min-height: 0; width: 100%; grid-template-columns: minmax(0, 1fr); gap: 0; }
 .app .stagehand--fullscreen .live-board-wrap { display: flex; min-height: 0; min-width: 0; overflow: hidden; }
-.app .stagehand-v2.stagehand--fullscreen .live-board.stagehand-grid { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 6px; border: 0; border-radius: 0; overflow: hidden; background: transparent; grid-template-rows: repeat(var(--stage-rows, 3), minmax(0, 1fr)); column-gap: clamp(4px, var(--stage-column-gap, 10px), 12px); row-gap: clamp(4px, var(--stage-row-gap, 10px), 12px); }
+.app .stagehand-v2.stagehand--fullscreen .live-board.stagehand-grid { flex: 1; min-width: 0; min-height: 0; width: 100%; margin: 0; padding: 6px; border: 0; border-radius: 0; overflow: auto; background: transparent; grid-template-columns: repeat(var(--stage-columns, 4), minmax(44px, 1fr)); grid-template-rows: repeat(var(--stage-rows, 3), minmax(44px, 1fr)); column-gap: clamp(4px, var(--stage-column-gap, 10px), 12px); row-gap: clamp(4px, var(--stage-row-gap, 10px), 12px); }
 .app .stagehand--fullscreen .live-pad__slot,
 .app .stagehand--fullscreen .live-pad--empty em { left: auto; right: 8px; top: 8px; bottom: auto; font-size: 11px; line-height: 1; }
 
@@ -62,6 +89,13 @@
 .stagehand-v2 .live-board.stagehand-grid { padding: var(--stage-inset-top, 16px) var(--stage-inset-right, 16px) var(--stage-inset-bottom, 16px) var(--stage-inset-left, 16px); border-color: #2a3749; background: radial-gradient(circle at 50% -20%, rgba(99, 213, 255, .08), transparent 42%), linear-gradient(150deg, #171f2a, #090d13 72%); }
 .stagehand-v2 .stagehand-grid { display: grid; grid-template-columns: repeat(var(--stage-columns, 4), minmax(0, 1fr)); grid-template-rows: repeat(var(--stage-rows, 3), clamp(108px, 10vw, 138px)); column-gap: var(--stage-column-gap, 10px); row-gap: var(--stage-row-gap, 10px); }
 .stagehand-v2 .stagehand-grid .live-pad { width: 100%; height: 100%; min-height: 0; }
+/* Keep the board's border inside the workspace. Dense stages scroll their cells,
+   rather than expanding the board beyond a phone or tablet screen. */
+:is(.app--tablet, .app--phone) .stagehand-v2 .live-board.stagehand-grid {
+  width: 100%; min-width: 0; max-width: 100%; overflow: auto;
+  grid-template-columns: repeat(var(--stage-columns, 4), minmax(96px, 1fr));
+  overscroll-behavior-x: contain;
+}
 .stagehand-v2 .live-row { gap: clamp(6px, .75vw, 10px); margin-top: clamp(6px, .75vw, 10px); }
 .stagehand-v2 .live-pad { min-width: 0; min-height: clamp(94px, 9.4vw, 126px); border-radius: 12px; isolation: isolate; user-select: none; touch-action: manipulation; }
 .stagehand-v2 .live-pad::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; background: radial-gradient(circle at 50% 55%, color-mix(in srgb, var(--pad-color) 22%, transparent), transparent 64%); transition: opacity .15s; }
@@ -392,7 +426,7 @@
 @keyframes stagehand-deck-flash { 0% { opacity: .72; transform: scale(.55); } 100% { opacity: 0; transform: scale(1.35); } }
 
 @media (max-width: 1120px) {
-  .stagehand-v2 .live-workspace { grid-template-columns: 1fr; }
+  .stagehand-v2 .live-workspace { grid-template-columns: minmax(0, 1fr); }
   .stagehand-v2 .live-inspector { max-height: none; }
 }
 
@@ -402,9 +436,7 @@
   .stagehand-v2 .live-toolbar__actions { flex-wrap: wrap; justify-content: flex-end; }
   .stagehand-v2 .stagehand-rig-strip { grid-template-columns: minmax(0, 1fr) auto; }
   .stagehand-rig-status { display: none; }
-  .stagehand-v2 .live-board-wrap { overflow-x: auto; }
-  .stagehand-v2 .live-board { overflow-x: auto; }
-  .stagehand-v2 .stagehand-grid { min-width: max(100%, calc(var(--stage-columns, 4) * 96px)); }
+  .stagehand-v2 .live-board.stagehand-grid { min-width: 0; max-width: 100%; overflow: auto; grid-template-columns: repeat(var(--stage-columns, 4), minmax(96px, 1fr)); }
   .stagehand-field-pair { grid-template-columns: 1fr; }
   .stagehand-spacing-grid { grid-template-columns: 1fr; }
   .stagehand-deck-bindings { grid-template-columns: 1fr; }
