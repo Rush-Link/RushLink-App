@@ -1,6 +1,9 @@
 import { expect, test, type Locator } from "@playwright/test";
 import { connectBrowserDemo } from "./support/connect-browser-demo";
 
+// These journeys start on desktop; phone/tablet suites cover compact defaults.
+test.use({ viewport: { width: 1440, height: 900 } });
+
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await connectBrowserDemo(page);
@@ -261,6 +264,7 @@ test("keeps StageHand multi-button deck text inside its controls without overlap
   await page.evaluate(async () => {
     // @ts-expect-error Vite serves this browser-only module during E2E tests.
     const { useAppStore } = await import("/src/stores/app-store.ts");
+    useAppStore.getState().setLiveLocked(false);
     useAppStore.getState().updateLiveButton("e2e-compact-deck", { widgetSize: "1x2" });
   });
   await expect(pad.locator(".stage-widget--footprint-1x2")).toBeVisible();
@@ -521,6 +525,7 @@ test("keeps device tuner modes compact and control groups comfortably separated"
   expect(desktopLayout).toBe(true);
 
   await page.setViewportSize({ width: 620, height: 900 });
+  await page.getByRole("navigation", { name: "Performance tool", exact: true }).getByRole("button", { name: "Device tuner", exact: true }).click();
   await controls.scrollIntoViewIfNeeded();
   await expect(power).toBeVisible();
   await expect(mode).toBeVisible();
@@ -557,7 +562,7 @@ test("keeps primary interactive controls accessible by name", async ({ page }) =
   }).length);
   expect(unnamed).toBe(0);
   await expect(page.locator("main")).toBeVisible();
-  await expect(page.locator("nav")).toHaveAttribute("class", /sidebar__nav/);
+  await expect(page.locator("#primary-navigation-menu")).toBeVisible();
 });
 
 test("shows the real computed focus treatment on text fields", async ({ page }) => {

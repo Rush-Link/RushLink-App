@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { connectBrowserDemo } from "./support/connect-browser-demo";
 
+test.use({ viewport: { width: 1440, height: 900 } });
+
 test("optimized output loads Global EQ component styles without visiting Rig Editor", async ({ page }) => {
   await page.goto("/?page=tools");
   await connectBrowserDemo(page);
@@ -17,9 +19,10 @@ test("optimized output loads Global EQ component styles without visiting Rig Edi
   await expect(page.locator(".global-eq-controls")).toHaveCSS("display", "grid");
 
   await page.setViewportSize({ width: 500, height: 900 });
+  await page.getByRole("navigation", { name: "Performance tool", exact: true }).getByRole("button", { name: "Global EQ", exact: true }).click();
   await expect(page.locator(".global-eq-head")).toHaveCSS("flex-direction", "column");
   const bandColumns = await page.locator(".eq-band-grid").evaluate((element) => getComputedStyle(element).gridTemplateColumns.split(" ").filter(Boolean).length);
-  expect(bandColumns).toBe(1);
+  expect(bandColumns).toBe(2);
   const eqFitsViewport = await page.locator(".global-eq-console").evaluate((element) => element.getBoundingClientRect().right <= window.innerWidth + 1);
   expect(eqFitsViewport).toBe(true);
 });
