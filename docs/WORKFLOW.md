@@ -153,3 +153,59 @@ npm run android:setup -- -AcceptLicenses
 No permanent environment variables or Windows security settings are changed.
 Use `npm run doctor -- -IncludeMacos` to also check GitHub access. Setup errors
 identify the missing tool or account access before a long build starts.
+
+
+### Phone emulator: same commands as tablet
+
+Replace `tablet` with `phone`; both workflows support the same options:
+
+| Action | Tablet | Phone |
+| --- | --- | --- |
+| Build, install and open | `npm run tablet` | `npm run phone` |
+| Open the existing APK | `npm run tablet -- -SkipBuild` | `npm run phone -- -SkipBuild` |
+| Build and smoke-test headlessly | `npm run tablet -- -Headless -SmokeTest` | `npm run phone -- -Headless -SmokeTest` |
+| Smoke-test the existing APK | `npm run tablet -- -SmokeTest -SkipBuild` | `npm run phone -- -SmokeTest -SkipBuild` |
+| Stop the emulator | `npm run tablet:stop` | `npm run phone:stop` |
+| Browser layout and rotation checks | `npm run test:tablet` | `npm run test:phone` |
+
+In VS Code, choose **Tasks: Run Task ? RushLink: Run on phone** or
+**RushLink: Stop phone**. No emulator extension is required.
+The phone starts in portrait at 1080?2340 with 440 dpi (approximately 393?851
+CSS pixels before system insets). Use the emulator rotation controls for landscape.
+It uses the same Android emulator APK as the tablet, with its own persistent AVD,
+app data, ports and session record. Running or stopping one does not stop the other.
+Each emulator defaults to 3 GB RAM. The first phone run prepares its AVD automatically
+using the existing Android toolchain and system image.
+
+Phone startup checks verify the packaged WebView, foreground app and fatal logs;
+screenshots and results are saved in `release-artifacts/current-build/android/phone/`.
+A smoke test closes only emulator processes it started. Browser tests separately
+cover multiple sizes and orientations. The emulator cannot replace physical-device
+checks for real Wi-Fi discovery or hardware behaviour. HeadRush communication stays
+on Wi-Fi; ADB here communicates only with the local PC emulator.
+For a setup-only check, run
+`powershell -ExecutionPolicy Bypass -File tools/run-android.ps1 -Profile phone -Check`.
+
+
+### iPhone and iPad builds on GitHub
+
+Run `npm run build:ios` or select **RushLink: Build iPhone and iPad (GitHub Actions)**
+in VS Code. This snapshots current source into a private build branch, builds on
+GitHub's macOS runners, and downloads checksum-verified artifacts. Windows does
+not compile Apple code. The same app supports iPhone and iPad, including rotation.
+
+The workflow produces an **unsigned ARM64 IPA** for iPhone/iPad and an **ARM64
+simulator app ZIP**. The simulator job installs and launches it on an iPhone and
+an iPad, retaining screenshots as a separate private Actions artifact. These
+startup checks do not verify a live HeadRush connection from GitHub.
+
+No Apple signing secrets are required for these preview builds. The unsigned IPA
+cannot be installed directly on a physical device or uploaded to TestFlight;
+Apple signing and provisioning must be configured first. Simulator apps run on
+a Mac, including the GitHub runner, and do not run in the Windows Android emulator.
+Artifacts remain private and expire after 14 days on GitHub; downloaded copies
+are kept under `release-artifacts/current-build/<source SHA>/ios-device/` and
+`ios-simulator/`. No App Store upload or public release is performed.
+
+Use `npm run build:ios -- -NoWait` to queue without waiting. Resume downloading
+with `npm run build:ios -- -DownloadRun <run ID>`.
