@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { demoDevice, demoRigs, demoSetlists } from "../data/demo-data";
+import { beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { demoDevice, demoRigs, demoSetlists, testRigTemplates } from "../data/demo-data";
 import type { CloudTone, ToneModel } from "../domain/types";
 import { deviceApi } from "../services/device-api";
 import { useAppStore, type AuditionRigSaveOptions } from "./app-store";
@@ -35,6 +35,7 @@ const activeCapture = {
 };
 
 const durableTone3000Path = "Neural Amp Modeler/Tone 3000/Exact active NAM.nam";
+let deviceNamFilenames: string[] = [];
 
 const saveOptions: AuditionRigSaveOptions = {
   name: "  Saved Audition  ",
@@ -72,22 +73,40 @@ function resetActiveAudition() {
     toneModels: { [activeTone.id]: [activeModel] },
     selectedToneId: activeTone.id,
     selectedToneModelId: activeModel.id,
+    testRigs: structuredClone(testRigTemplates),
+    selectedTestRigId: testRigTemplates[0].id,
+    captureOverride: "auto",
     auditioningToneId: activeTone.id,
     auditionBusy: false,
     auditionError: null,
-    testRigReturn: { ...returnTarget },
+    testRigReturn: structuredClone(returnTarget),
     diagnostics: [],
   });
 }
 
+function reflectRigMetadataWrites(
+  properties: MockInstance<typeof deviceApi.properties>,
+  setProperties: MockInstance<typeof deviceApi.setProperties>,
+) {
+  const read = properties.getMockImplementation()!;
+  const write = setProperties.getMockImplementation()!;
+  const applied = new Map<string, Record<string, unknown>>();
+  setProperties.mockImplementation(async (path, values) => {
+    const response = await write(path, values);
+    if (response.status >= 200 && response.status < 300 && ["/Evil/API/Rigs", "/Evil/Engine/Patch/Rig"].includes(path)) {
+      applied.set(path, { ...applied.get(path), ...structuredClone(values) });
+    }
+    return response;
+  });
+  properties.mockImplementation(async (path) => ({ ...await read(path), ...applied.get(path) }));
+}
+
 function mockSuccessfulRigSave(savedRigId = "saved-rig") {
-  let rigRead = 0;
   const properties = vi.spyOn(deviceApi, "properties").mockImplementation(async (path) => {
     if (path === activeCapture.path) return { On: true, LoadedClone: durableTone3000Path, FileMissing: "" };
     if (path === "/Evil/Engine/Patch/Rig") return { TempoFromMaster: true, Tempo: 0.42 };
     if (path !== "/Evil/API/Rigs") return {};
-    rigRead += 1;
-    if (rigRead === 1) return {
+    if (saveRigAs.mock.calls.length === 0) return {
       AllRigNames: demoRigs.map((rig) => rig.name),
       AllRigIds: demoRigs.map((rig) => rig.id),
       availableProgMIDICC: [0, 1, 11, 12, 127],
@@ -101,7 +120,9 @@ function mockSuccessfulRigSave(savedRigId = "saved-rig") {
     };
   });
   const setProperties = vi.spyOn(deviceApi, "setProperties").mockResolvedValue({ status: 200, body: {} });
-  const downloadTone = vi.spyOn(deviceApi, "downloadTone").mockResolvedValue();
+  const downloadTone = vi.spyOn(deviceApi, "downloadTone").mockImplementation(async (_tone, model, name) => {
+    if (model) deviceNamFilenames.push(`${name}.nam`);
+  });
   const canSaveNewRig = vi.spyOn(deviceApi, "canSaveNewRig").mockResolvedValue(true);
   const saveRigAs = vi.spyOn(deviceApi, "saveRigAs").mockResolvedValue();
   const getSetlist = vi.spyOn(deviceApi, "getSetlist");
@@ -109,6 +130,7 @@ function mockSuccessfulRigSave(savedRigId = "saved-rig") {
   const refreshFull = vi.spyOn(useAppStore.getState(), "refreshFull").mockResolvedValue();
   const startToneDemo = vi.spyOn(deviceApi, "startToneDemo").mockResolvedValue();
   const stopToneDemo = vi.spyOn(deviceApi, "stopToneDemo").mockResolvedValue();
+  reflectRigMetadataWrites(properties, setProperties);
   return { properties, setProperties, downloadTone, canSaveNewRig, saveRigAs, getSetlist, saveSetlistDocument, refreshFull, startToneDemo, stopToneDemo };
 }
 
@@ -131,8 +153,9 @@ describe("TonePilot save audition as a HeadRush rig", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     resetActiveAudition();
+    deviceNamFilenames = [];
     vi.spyOn(deviceApi, "isNative").mockReturnValue(true);
-    vi.spyOn(deviceApi, "listDeviceFiles").mockResolvedValue([]);
+    vi.spyOn(deviceApi, "listDeviceFiles").mockImplementation(async () => [...deviceNamFilenames]);
     vi.spyOn(useAppStore.getState(), "syncActiveTestRig").mockResolvedValue();
   });
 
@@ -148,6 +171,44 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     expect(setProperties).not.toHaveBeenCalled();
     expect(saveRigAs).not.toHaveBeenCalled();
     expect(useAppStore.getState().auditionBusy).toBe(false);
+  });
+
+  it.each(["offline", "error", "syncing", "discovering", "demo"] as const)("refuses a %s device before starting a rig save", async (status) => {
+    useAppStore.setState({ device: { ...demoDevice, status } });
+    const mocks = mockSuccessfulRigSave();
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/connect|ready/i);
+
+    expect(mocks.properties).not.toHaveBeenCalled();
+    expect(useAppStore.getState().syncActiveTestRig).not.toHaveBeenCalled();
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(useAppStore.getState().auditionBusy).toBe(false);
+  });
+
+  it("does not enter a second save while an audition operation is already busy", async () => {
+    useAppStore.setState({ auditionBusy: true });
+    const mocks = mockSuccessfulRigSave();
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/busy|progress|finish|wait/i);
+
+    expect(mocks.properties).not.toHaveBeenCalled();
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(useAppStore.getState().auditionBusy).toBe(true);
+  });
+
+  it.each([undefined, null, "Saved Audition", { names: [] }, ["Another rig", 123]].map((AllRigNames) => ({ AllRigNames })))("fails closed on a malformed device rig-name list ($AllRigNames)", async ({ AllRigNames }) => {
+    const mocks = mockSuccessfulRigSave();
+    mocks.properties.mockResolvedValueOnce({ AllRigNames, availableProgMIDICC: [11], loadedProgMIDICC: -1 });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/rig.*list|library|names/i);
+
+    expect(mocks.canSaveNewRig).not.toHaveBeenCalled();
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.setProperties).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expectSessionPreserved();
   });
 
   it.each([
@@ -192,20 +253,19 @@ describe("TonePilot save audition as a HeadRush rig", () => {
 
     const result = await useAppStore.getState().saveAuditionRig(saveOptions);
 
-    expect(mocks.properties).toHaveBeenNthCalledWith(1, "/Evil/API/Rigs");
-    expect(mocks.properties).toHaveBeenNthCalledWith(2, activeCapture.path);
-    expect(mocks.properties).toHaveBeenNthCalledWith(3, "/Evil/Engine/Patch/Rig");
-    expect(mocks.properties).toHaveBeenNthCalledWith(4, "/Evil/API/Rigs");
+    expect(mocks.properties).toHaveBeenCalledWith("/Evil/API/Rigs");
+    expect(mocks.properties).toHaveBeenCalledWith(activeCapture.path);
+    expect(mocks.properties).toHaveBeenCalledWith("/Evil/Engine/Patch/Rig");
     expect(mocks.canSaveNewRig).toHaveBeenCalledOnce();
     expect(mocks.downloadTone).toHaveBeenCalledWith(activeTone, activeModel, "Exact active NAM");
-    expect(mocks.setProperties).toHaveBeenNthCalledWith(1, activeCapture.path, {
+    expect(mocks.setProperties).toHaveBeenCalledWith(activeCapture.path, {
       LoadedClone: durableTone3000Path,
     });
-    expect(mocks.setProperties).toHaveBeenNthCalledWith(2, "/Evil/API/Rigs", {
+    expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/API/Rigs", {
       loadedColor: 4,
       loadedProgMIDICC: 11,
     });
-    expect(mocks.setProperties).toHaveBeenNthCalledWith(3, "/Evil/Engine/Patch/Rig", {
+    expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Rig", {
       TempoFromMaster: false,
       Tempo: expect.closeTo((126 - 30) / 210, 10),
     });
@@ -231,6 +291,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
         // The device controls the suffix; passing a .nam filename here would
         // create a different file from the one the rig's host is loading.
         expect(`${args[2]}.nam`).toBe("Exact active NAM.nam");
+        deviceNamFilenames.push(`${args[2]}.nam`);
         return { status: 200, body: { methodReturnValue: JSON.stringify({ success: true }) } };
       }
       throw new Error(`Unexpected device method: ${method}`);
@@ -256,6 +317,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       if (path === activeCapture.path) loadedFile = String(properties.LoadedClone);
       return { status: 200, body: {} };
     });
+    reflectRigMetadataWrites(mocks.properties, mocks.setProperties);
 
     await useAppStore.getState().saveAuditionRig(saveOptions);
 
@@ -277,6 +339,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       if (path === activeCapture.path) loadedFile = String(properties.LoadedClone);
       return { status: 200, body: {} };
     });
+    reflectRigMetadataWrites(mocks.properties, mocks.setProperties);
 
     await useAppStore.getState().saveAuditionRig(saveOptions);
     await useAppStore.getState().saveAuditionRig({ ...saveOptions, programChange: -1, overwrite: true });
@@ -321,6 +384,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       };
     });
 
+    reflectRigMetadataWrites(mocks.properties, mocks.setProperties);
     const result = await useAppStore.getState().saveAuditionRig({ ...saveOptions, programChange: -1 });
 
     expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/API/Rigs", { loadedColor: saveOptions.color });
@@ -373,7 +437,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       tempoMode: "current",
     });
 
-    expect(mocks.setProperties).toHaveBeenNthCalledWith(3, "/Evil/Engine/Patch/Rig", { TempoFromMaster: true });
+    expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Rig", { TempoFromMaster: true });
     expect(mocks.getSetlist).toHaveBeenCalledWith(placeholderSetlist.id);
     expect(mocks.saveSetlistDocument).toHaveBeenCalledWith({
       id: placeholderSetlist.id,
@@ -550,7 +614,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       if (rigRead <= 2) return duplicateLibrary;
       return { ...duplicateLibrary, loadedID: "existing-duplicate-rig", loadedName: "Saved Audition" };
     });
-    vi.spyOn(deviceApi, "downloadTone").mockResolvedValue();
+    vi.spyOn(deviceApi, "downloadTone").mockImplementation(async (_tone, _model, name) => { deviceNamFilenames.push(`${name}.nam`); });
     const canSaveNewRig = vi.spyOn(deviceApi, "canSaveNewRig").mockResolvedValue(true);
     const setProperties = vi.spyOn(deviceApi, "setProperties").mockResolvedValue({ status: 200, body: {} });
     const saveRigAs = vi.spyOn(deviceApi, "saveRigAs").mockResolvedValue();
@@ -564,9 +628,10 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     expect(setProperties).not.toHaveBeenCalled();
     expect(saveRigAs).not.toHaveBeenCalled();
 
+    reflectRigMetadataWrites(properties, setProperties);
     const result = await useAppStore.getState().saveAuditionRig({ ...saveOptions, overwrite: true });
 
-    expect(properties).toHaveBeenCalledTimes(5);
+    expect(properties).toHaveBeenCalledWith("/Evil/API/Rigs");
     expect(canSaveNewRig).not.toHaveBeenCalled();
     expect(setProperties).toHaveBeenCalledTimes(3);
     expect(saveRigAs).toHaveBeenCalledOnce();
@@ -652,6 +717,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       return {};
     });
     mocks.saveRigAs.mockRejectedValue(new Error("device rejected save-as"));
+    reflectRigMetadataWrites(mocks.properties, mocks.setProperties);
 
     await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow("device rejected save-as");
 
@@ -667,7 +733,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     let releaseSync!: () => void;
     const syncGate = new Promise<void>((resolve) => { releaseSync = resolve; });
     const syncActiveTestRig = vi.mocked(useAppStore.getState().syncActiveTestRig);
-    syncActiveTestRig.mockReset().mockReturnValueOnce(syncGate);
+    syncActiveTestRig.mockReset().mockResolvedValue().mockReturnValueOnce(syncGate);
 
     const saving = useAppStore.getState().saveAuditionRig(saveOptions);
     await vi.waitFor(() => expect(syncActiveTestRig).toHaveBeenCalledOnce());
@@ -684,6 +750,272 @@ describe("TonePilot save audition as a HeadRush rig", () => {
     expect(syncActiveTestRig.mock.invocationCallOrder[0]).toBeLessThan(mocks.downloadTone.mock.invocationCallOrder[0]);
     expect(syncActiveTestRig.mock.invocationCallOrder[0]).toBeLessThan(mocks.saveRigAs.mock.invocationCallOrder[0]);
     expectSessionPreserved();
+  });
+
+  it("syncs the complete Test Rig again after binding the permanent NAM file", async () => {
+    const mocks = mockSuccessfulRigSave();
+    const syncedCaptureFiles: string[] = [];
+    const syncActiveTestRig = vi.mocked(useAppStore.getState().syncActiveTestRig);
+    syncActiveTestRig.mockImplementation(async () => {
+      syncedCaptureFiles.push(useAppStore.getState().testRigReturn!.audition!.captureFile!.value);
+    });
+
+    await useAppStore.getState().saveAuditionRig(saveOptions);
+
+    expect(syncedCaptureFiles).toEqual([activeCapture.value, durableTone3000Path]);
+    expect(syncActiveTestRig.mock.invocationCallOrder[0]).toBeLessThan(mocks.downloadTone.mock.invocationCallOrder[0]);
+    expect(syncActiveTestRig.mock.invocationCallOrder[1]).toBeGreaterThan(mocks.setProperties.mock.invocationCallOrder[0]);
+    expect(syncActiveTestRig.mock.invocationCallOrder[1]).toBeLessThan(mocks.saveRigAs.mock.invocationCallOrder[0]);
+  });
+
+  it("does not save or write rig metadata when the sync after NAM binding fails", async () => {
+    const mocks = mockSuccessfulRigSave();
+    vi.mocked(useAppStore.getState().syncActiveTestRig)
+      .mockResolvedValueOnce()
+      .mockRejectedValueOnce(new Error("NAM output did not keep the selected level"));
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow("NAM output did not keep the selected level");
+
+    expect(mocks.downloadTone).toHaveBeenCalledOnce();
+    expect(mocks.setProperties).toHaveBeenCalledWith(activeCapture.path, { LoadedClone: durableTone3000Path });
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs" || path === "/Evil/Engine/Patch/Rig")).toEqual([]);
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(mocks.saveSetlistDocument).not.toHaveBeenCalled();
+    expectSessionPreserved();
+  });
+
+  it.each([
+    ["provider", (audition: typeof returnTarget.audition) => { audition.tone.source = "HeadRush Cloud"; }],
+    ["provider item", (audition: typeof returnTarget.audition) => { audition.tone.remoteId = 88; }],
+    ["model selection", (audition: typeof returnTarget.audition) => { audition.model.id = "another-model"; }],
+    ["model identifier", (audition: typeof returnTarget.audition) => { audition.model.remoteId = 999; }],
+    ["model URL", (audition: typeof returnTarget.audition) => { audition.model.url = "https://tone3000.example/models/other.nam"; }],
+  ] as const)("refuses a changed %s within the same catalogue tone while preparing the save", async (_label, changeAudition) => {
+    const mocks = mockSuccessfulRigSave();
+    vi.mocked(useAppStore.getState().syncActiveTestRig).mockImplementationOnce(async () => {
+      const changedReturn = structuredClone(returnTarget);
+      changeAudition(changedReturn.audition);
+      useAppStore.setState({ testRigReturn: changedReturn });
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/audition.*changed|changed.*audition/i);
+
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.setProperties).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+  });
+
+  it("refuses an in-place model identity change while downloading the source", async () => {
+    const mocks = mockSuccessfulRigSave();
+    mocks.downloadTone.mockImplementation(async () => {
+      deviceNamFilenames.push("Exact active NAM.nam");
+      // A captured reference is insufficient: the save must compare against
+      // the original model identity even if another callback mutates it.
+      useAppStore.getState().testRigReturn!.audition!.model!.remoteId = 999;
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/audition.*changed|changed.*audition/i);
+
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs" || path === "/Evil/Engine/Patch/Rig")).toEqual([]);
+  });
+
+  it("does not download if the audition changes during the final NAM directory preflight", async () => {
+    const mocks = mockSuccessfulRigSave();
+    let directoryReads = 0;
+    vi.mocked(deviceApi.listDeviceFiles).mockImplementation(async () => {
+      directoryReads += 1;
+      if (directoryReads === 2) {
+        const changedReturn = structuredClone(returnTarget);
+        changedReturn.audition.model.remoteId = 999;
+        useAppStore.setState({ testRigReturn: changedReturn });
+      }
+      return [];
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/audition.*changed|changed.*audition/i);
+
+    expect(directoryReads).toBe(2);
+    expect(mocks.downloadTone).not.toHaveBeenCalled();
+    expect(mocks.setProperties).not.toHaveBeenCalled();
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["selected Test Rig", () => useAppStore.setState({ selectedTestRigId: "different-test-rig" })],
+    ["Test Rig effect state", () => useAppStore.setState((state) => ({
+      testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
+        ...rig,
+        blocks: rig.blocks.map((block, index) => index === 1 ? { ...block, enabled: !block.enabled } : block),
+      }),
+    }))],
+    ["capture type", () => useAppStore.setState({ captureOverride: "effect" })],
+    ["device", () => useAppStore.setState({ device: { ...demoDevice, id: "another-device", host: "another.local", status: "ready" } })],
+    ["connection", () => useAppStore.setState({ device: { ...demoDevice, status: "error" } })],
+  ] as const)("stops before metadata writes if the %s changes after source preparation", async (_label, changeContext) => {
+    const mocks = mockSuccessfulRigSave();
+    const originalRead = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => {
+      const result = await originalRead(path);
+      if (path === "/Evil/Engine/Patch/Rig") changeContext();
+      return result;
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/changed|connect|ready/i);
+
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs" || path === "/Evil/Engine/Patch/Rig")).toEqual([]);
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+  });
+
+  it("does not save or roll old metadata into another audition after an option write", async () => {
+    const mocks = mockSuccessfulRigSave();
+    mocks.setProperties.mockImplementation(async (path) => {
+      if (path === "/Evil/API/Rigs") {
+        const changedReturn = structuredClone(returnTarget);
+        changedReturn.audition.model.remoteId = 999;
+        useAppStore.setState({ testRigReturn: changedReturn });
+      }
+      return { status: 200, body: {} };
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/audition.*changed|changed.*audition/i);
+
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs")).toEqual([["/Evil/API/Rigs", { loadedColor: 4, loadedProgMIDICC: 11 }]]);
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/Engine/Patch/Rig")).toEqual([]);
+  });
+
+  it("keeps the submitted save options when the caller changes its options object during preparation", async () => {
+    const mocks = mockSuccessfulRigSave();
+    const mutableOptions = { ...saveOptions };
+    mocks.canSaveNewRig.mockImplementation(async () => {
+      Object.assign(mutableOptions, { name: "Unexpected name", color: 9, tempoMode: "current", tempoBpm: 220, programChange: -1, setlistId: demoSetlists[0].id });
+      return true;
+    });
+
+    const result = await useAppStore.getState().saveAuditionRig(mutableOptions);
+
+    expect(mocks.saveRigAs).toHaveBeenCalledWith("Saved Audition");
+    expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/API/Rigs", { loadedColor: 4, loadedProgMIDICC: 11 });
+    expect(mocks.setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Rig", { TempoFromMaster: false, Tempo: expect.closeTo((126 - 30) / 210, 10) });
+    expect(mocks.getSetlist).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ name: "Saved Audition", rigId: "saved-rig" });
+  });
+
+  it.each([
+    ["colour", "/Evil/API/Rigs", "loadedColor", 9],
+    ["MIDI program", "/Evil/API/Rigs", "loadedProgMIDICC", -1],
+    ["tempo source", "/Evil/Engine/Patch/Rig", "TempoFromMaster", true],
+    ["tempo", "/Evil/Engine/Patch/Rig", "Tempo", 0.1],
+  ] as const)("does not save when HeadRush accepts but does not apply the %s setting", async (_label, propertyPath, property, ignoredValue) => {
+    const mocks = mockSuccessfulRigSave();
+    const read = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => {
+      const value = await read(path);
+      return path === propertyPath ? { ...value, [property]: ignoredValue } : value;
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig(saveOptions)).rejects.toThrow(/metadata|tempo|colour|color|options|confirm|keep/i);
+
+    expect(mocks.saveRigAs).not.toHaveBeenCalled();
+    expect(mocks.getSetlist).not.toHaveBeenCalled();
+    expect(mocks.saveSetlistDocument).not.toHaveBeenCalled();
+    expect(useAppStore.getState().auditionBusy).toBe(false);
+  });
+
+  it.each([false, true])("reports an accepted but unconfirmed rig save without rollback or setlist insertion (setlist: %s)", async (withSetlist) => {
+    const mocks = mockSuccessfulRigSave();
+    const read = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => {
+      const value = await read(path);
+      if (path !== "/Evil/API/Rigs" || !mocks.saveRigAs.mock.calls.length) return value;
+      return {
+        ...value,
+        loadedID: demoRigs[0].id,
+        loadedName: demoRigs[0].name,
+        AllRigNames: demoRigs.map((rig) => rig.name),
+        AllRigIds: demoRigs.map((rig) => rig.id),
+      };
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig({ ...saveOptions, setlistId: withSetlist ? demoSetlists[0].id : undefined })).rejects.toThrow(/could not confirm.*check.*Rigs.*trying again/i);
+
+    expect(mocks.saveRigAs).toHaveBeenCalledOnce();
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs")).toEqual([["/Evil/API/Rigs", { loadedColor: 4, loadedProgMIDICC: 11 }]]);
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/Engine/Patch/Rig")).toEqual([["/Evil/Engine/Patch/Rig", { TempoFromMaster: false, Tempo: expect.closeTo((126 - 30) / 210, 10) }]]);
+    expect(mocks.getSetlist).not.toHaveBeenCalled();
+    expect(mocks.saveSetlistDocument).not.toHaveBeenCalled();
+    expect(useAppStore.getState().diagnostics.some((entry) => entry.level === "success")).toBe(false);
+    expectSessionPreserved();
+  });
+
+  it("keeps an accepted save unconfirmed if the device disconnects while save-as is pending", async () => {
+    const mocks = mockSuccessfulRigSave();
+    mocks.saveRigAs.mockImplementation(async () => {
+      useAppStore.setState({ device: { ...demoDevice, status: "error" } });
+    });
+
+    await expect(useAppStore.getState().saveAuditionRig({ ...saveOptions, setlistId: demoSetlists[0].id })).rejects.toThrow(/accepted.*connection changed.*check Rigs/i);
+
+    expect(mocks.saveRigAs).toHaveBeenCalledOnce();
+    expect(mocks.getSetlist).not.toHaveBeenCalled();
+    expect(mocks.saveSetlistDocument).not.toHaveBeenCalled();
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/API/Rigs")).toHaveLength(1);
+    expect(mocks.setProperties.mock.calls.filter(([path]) => path === "/Evil/Engine/Patch/Rig")).toHaveLength(1);
+    expect(useAppStore.getState().diagnostics.some((entry) => entry.level === "success")).toBe(false);
+  });
+
+  it.each([["complete library IDs", true], ["only the loaded ID", false]] as const)("waits for a new rig ID when the name updates first and preflight exposes %s", async (_label, hasLibraryIds) => {
+    const mocks = mockSuccessfulRigSave("confirmed-new-id");
+    let readsAfterSave = 0;
+    const read = mocks.properties.getMockImplementation()!;
+    mocks.properties.mockImplementation(async (path) => {
+      const value = await read(path);
+      if (path !== "/Evil/API/Rigs") return value;
+      if (!mocks.saveRigAs.mock.calls.length) return hasLibraryIds ? value : {
+        ...value,
+        AllRigIds: undefined,
+        loadedID: demoRigs[0].id,
+        loadedName: demoRigs[0].name,
+      };
+      readsAfterSave += 1;
+      if (readsAfterSave > 1) return value;
+      return {
+        ...value,
+        loadedID: demoRigs[0].id,
+        loadedName: "Saved Audition",
+        AllRigNames: demoRigs.map((rig) => rig.name),
+        AllRigIds: demoRigs.map((rig) => rig.id),
+      };
+    });
+    const setlist = demoSetlists[0];
+    mocks.getSetlist.mockResolvedValue({ id: setlist.id, name: setlist.name, author: "", version: "1.0.0", readonly: false, rigs: [], rig_names: [] });
+
+    const result = await useAppStore.getState().saveAuditionRig({ ...saveOptions, setlistId: setlist.id });
+
+    expect(readsAfterSave).toBeGreaterThanOrEqual(2);
+    expect(result.rigId).toBe("confirmed-new-id");
+    expect(mocks.saveSetlistDocument).toHaveBeenCalledWith({ id: setlist.id, name: setlist.name, data: [{ id: "confirmed-new-id", order: 0 }] });
+  });
+
+  it("does not bind or save when the NAM downloader acknowledges a file that never appears", async () => {
+    vi.useFakeTimers();
+    try {
+      const mocks = mockSuccessfulRigSave();
+      vi.mocked(deviceApi.listDeviceFiles).mockResolvedValue([]);
+
+      const saving = useAppStore.getState().saveAuditionRig(saveOptions);
+      const rejected = expect(saving).rejects.toThrow(/could not.*verif|not.*confirm|not.*found|did not.*appear/i);
+      await vi.runAllTimersAsync();
+      await rejected;
+
+      expect(mocks.downloadTone).toHaveBeenCalledOnce();
+      expect(mocks.setProperties).not.toHaveBeenCalled();
+      expect(mocks.saveRigAs).not.toHaveBeenCalled();
+      expect(useAppStore.getState().auditionBusy).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("reports a refresh warning without retrying or rolling back an already-saved rig", async () => {
@@ -711,8 +1043,7 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       if (path === activeCapture.path) return { On: true, LoadedClone: durableTone3000Path, FileMissing: "" };
       if (path === "/Evil/Engine/Patch/Rig") return { TempoFromMaster: true, Tempo: 0.42 };
       if (path !== "/Evil/API/Rigs") return {};
-      rigRead += 1;
-      if (rigRead === 1) return {
+      if (!mocks.saveRigAs.mock.calls.length) return {
         AllRigNames: demoRigs.map((rig) => rig.name),
         AllRigIds: demoRigs.map((rig) => rig.id),
         availableProgMIDICC: [0, 1, 11, 12, 127],
@@ -720,7 +1051,8 @@ describe("TonePilot save audition as a HeadRush rig", () => {
         loadedID: "rig-loaded-before-save",
         loadedName: "Previously Loaded Rig",
       };
-      if (rigRead === 2) return {
+      rigRead += 1;
+      if (rigRead === 1) return {
         AllRigNames: demoRigs.map((rig) => rig.name),
         AllRigIds: demoRigs.map((rig) => rig.id),
         loadedID: "stale-loaded-id",
@@ -743,9 +1075,10 @@ describe("TonePilot save audition as a HeadRush rig", () => {
       rig_names: ["Existing Rig"],
     });
 
+    reflectRigMetadataWrites(mocks.properties, mocks.setProperties);
     const result = await useAppStore.getState().saveAuditionRig({ ...saveOptions, setlistId: setlist.id });
 
-    expect(mocks.properties).toHaveBeenCalledTimes(5);
+    expect(mocks.properties).toHaveBeenCalledWith("/Evil/API/Rigs");
     expect(mocks.saveSetlistDocument).toHaveBeenCalledWith({
       id: setlist.id,
       name: setlist.name,

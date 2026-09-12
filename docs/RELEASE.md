@@ -67,7 +67,7 @@ retained for 14 days.
 
 Preview builds use ad-hoc signing and need no Apple credentials. They are not
 notarized; successful packaging does not establish Gatekeeper acceptance or live
-HeadRush compatibility. Test installation, GUI startup, discovery and USB Transfer
+HeadRush compatibility. Test installation, GUI startup, discovery and Wi-Fi NAM saving
 on each Mac architecture before public distribution. Private macOS builds consume
 the organization's Actions allowance.
 

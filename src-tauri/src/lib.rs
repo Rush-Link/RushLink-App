@@ -14,8 +14,6 @@ use tokio::sync::RwLock;
 use tokio_tungstenite::connect_async;
 use url::{Host, Url};
 
-mod nam_transfer;
-
 #[derive(Clone)]
 struct DeviceSession {
     base_url: Url,
@@ -542,6 +540,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             discover_devices,
@@ -553,7 +552,6 @@ pub fn run() {
             call_object_method,
             pair_device,
             device_request,
-            nam_transfer::transfer_nam_file,
             start_device_events
         ])
         .run(tauri::generate_context!())

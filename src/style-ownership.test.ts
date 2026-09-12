@@ -38,7 +38,6 @@ const routeStyles = [
 ] as const;
 
 const componentStyles = [
-  ["pages/tonepilot-nam-folder-picker.tsx", ["device-file-picker.css", "tonepilot-nam-folder-picker.css"]],
   ["components/ui/index.tsx", ["ui-components.css"]],
   ["components/system/controls.tsx", ["controls.css"]],
   ["components/system/device-file-control.tsx", ["device-file-picker.css"]],

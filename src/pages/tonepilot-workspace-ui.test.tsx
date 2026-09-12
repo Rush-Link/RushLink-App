@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { demoCapabilities, demoDevice, demoRigs, demoSetlists, testRigTemplates } from "../data/demo-data";
 import type { CloudTone, ToneModel } from "../domain/types";
 import { deviceApi } from "../services/device-api";
-import * as namTransfer from "../services/nam-transfer";
 import { useAppStore } from "../stores/app-store";
 import { ToneLabPage } from "./tone-lab";
 import { TestRigEditorDialog, TestRigParameterEditor, TonePilotTestRigStudio } from "./tonepilot-test-rigs";
@@ -100,9 +99,10 @@ describe("TonePilot audition workspace UI", () => {
     const dialog = screen.getByRole("dialog", { name: "Save NAM to device" });
     expect(within(dialog).getByRole("combobox", { name: "Save as" })).toHaveValue("model");
     expect(within(dialog).getByLabelText("Model name")).toHaveValue(model.name);
-    expect(within(dialog).getByLabelText("Save location")).toHaveTextContent("Neural Amp Modeler/User/QA A2.nam");
-    expect(within(dialog).getByRole("button", { name: "Choose folder" })).toBeEnabled();
-    expect(within(dialog).getByText(/needs USB Transfer after the download/i)).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Save location")).toHaveTextContent("Neural Amp Modeler/Tone 3000/QA A2.nam");
+    expect(within(dialog).queryByRole("button", { name: "Choose folder" })).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/Saved over Wi-Fi/i)).toBeInTheDocument();
+    expect(dialog).not.toHaveTextContent(/USB|eject|tap Sync/i);
     expect(within(dialog).getByText(/does not offer a default volume setting/i)).toBeInTheDocument();
     expect(within(dialog).queryByRole("slider")).not.toBeInTheDocument();
     expect(within(dialog).getByRole("option", { name: /Audition rig/ })).toBeDisabled();
@@ -112,38 +112,32 @@ describe("TonePilot audition workspace UI", () => {
     expect(download).not.toHaveBeenCalled();
   });
 
-  it("defaults to User and finishes its chosen NAM destination through USB even after Wi-Fi disconnects", async () => {
-    let downloaded = false;
-    const download = vi.spyOn(deviceApi, "downloadTone").mockImplementation(async () => { downloaded = true; });
-    vi.spyOn(deviceApi, "listDeviceFiles").mockImplementation(async (folder) => folder === "Neural Amp Modeler/Tone 3000" && downloaded ? ["My Lead.nam"] : []);
-    const chooseRoot = vi.spyOn(namTransfer, "chooseNamTransferRoot").mockResolvedValueOnce(null).mockResolvedValue("E:/Neural Amp Modeler");
-    const transfer = vi.spyOn(namTransfer, "completeNamTransfer").mockResolvedValue({ name: "My Lead", path: "Neural Amp Modeler/User/My Lead.nam" });
+  it("saves over Wi-Fi and confirms success only after the NAM appears in the Tone 3000 folder", async () => {
+    let confirmSaved!: (files: string[]) => void;
+    const download = vi.spyOn(deviceApi, "downloadTone").mockResolvedValue();
+    const listing = vi.spyOn(deviceApi, "listDeviceFiles")
+      .mockResolvedValueOnce([])
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => { confirmSaved = resolve; }));
     render(<ToneLabPage/>);
     fireEvent.click(screen.getByRole("button", { name: "Save to device" }));
     const dialog = screen.getByRole("dialog", { name: "Save NAM to device" });
     fireEvent.change(within(dialog).getByLabelText("Model name"), { target: { value: "My Lead.nam" } });
-    expect(within(dialog).getByLabelText("Save location")).toHaveTextContent("Neural Amp Modeler/User/My Lead.nam");
+    expect(within(dialog).getByLabelText("Save location")).toHaveTextContent("Neural Amp Modeler/Tone 3000/My Lead.nam");
     fireEvent.click(within(dialog).getByRole("button", { name: "Save NAM" }));
-    const finish = await within(dialog).findByRole("button", { name: "Choose HeadRush NAM folder" });
+    await waitFor(() => expect(listing).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("button", { name: "Dismiss NAM save result" })).not.toBeInTheDocument();
-    act(() => useAppStore.setState({ device: null }));
-    expect(finish).toBeEnabled();
-    fireEvent.click(finish);
-    await waitFor(() => expect(chooseRoot).toHaveBeenCalledOnce());
-    expect(transfer).not.toHaveBeenCalled();
-    expect(dialog).toBeInTheDocument();
-    fireEvent.click(finish);
-    const completion = await screen.findByRole("dialog", { name: "NAM copied to HeadRush" });
-    expect(within(completion).getByLabelText("Copied NAM location")).toHaveTextContent("Neural Amp Modeler/User/My Lead.nam");
-    expect(within(completion).getByText(/Safely eject the HeadRush drive/)).toBeInTheDocument();
-    expect(within(completion).getByText(/on HeadRush and wait for the import to finish/)).toBeInTheDocument();
-    fireEvent.click(within(completion).getByRole("button", { name: "Done" }));
+    expect(useAppStore.getState().tones[0].downloaded).not.toBe(true);
+    expect(within(dialog).getByRole("button", { name: "Save NAM" })).toBeDisabled();
+    expect(within(dialog).getByLabelText("Model name")).toBeDisabled();
+    expect(within(dialog).getByRole("combobox", { name: "Save as" })).toBeDisabled();
+    await act(async () => confirmSaved(["My Lead.nam"]));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(download).toHaveBeenCalledWith(tone, model, "My Lead");
-    expect(transfer).toHaveBeenCalledWith("E:/Neural Amp Modeler", "Neural Amp Modeler/Tone 3000/My Lead.nam", "Neural Amp Modeler/User/My Lead.nam");
+    expect(listing.mock.calls).toEqual(Array(2).fill(["Neural Amp Modeler/Tone 3000", "nam"]));
     const result = screen.getByRole("button", { name: "Dismiss NAM save result" }).closest('[role="status"]');
-    expect(result).toHaveTextContent("Neural Amp Modeler/User/My Lead.nam");
-    expect(result).toHaveTextContent("tap Sync on the pedal");
+    expect(result).toHaveTextContent("Saved “My Lead” to the NAM library");
+    expect(result).toHaveTextContent("Neural Amp Modeler/Tone 3000/My Lead.nam");
+    expect(result).not.toHaveTextContent(/USB|eject|tap Sync/i);
     expect(useAppStore.getState().tones[0].downloaded).toBe(true);
   });
 
@@ -161,32 +155,22 @@ describe("TonePilot audition workspace UI", () => {
     listing.mockImplementation(async (folder) => folder === "Neural Amp Modeler/Tone 3000" && downloaded ? ["QA A2.nam", "New Lead.nam"] : ["QA A2.nam"]);
     fireEvent.change(within(dialog).getByLabelText("Model name"), { target: { value: "New Lead" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save NAM" }));
-    expect(await within(dialog).findByRole("button", { name: "Choose HeadRush NAM folder" })).toBeEnabled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Dismiss NAM save result" }).closest('[role="status"]')).toHaveTextContent("Neural Amp Modeler/Tone 3000/New Lead.nam");
     expect(download).toHaveBeenCalledOnce();
   });
 
-  it("can rename a USB destination after a collision without downloading the model again", async () => {
-    let downloaded = false;
-    const download = vi.spyOn(deviceApi, "downloadTone").mockImplementation(async () => { downloaded = true; });
-    vi.spyOn(deviceApi, "listDeviceFiles").mockImplementation(async (folder) => folder === "Neural Amp Modeler/Tone 3000" && downloaded ? ["QA A2.nam"] : []);
-    vi.spyOn(namTransfer, "chooseNamTransferRoot").mockResolvedValue("E:/Neural Amp Modeler");
-    const transfer = vi.spyOn(namTransfer, "completeNamTransfer")
-      .mockRejectedValueOnce(new Error("A NAM file already exists at this destination. Choose another name."))
-      .mockResolvedValueOnce({ name: "USB Lead", path: "Neural Amp Modeler/User/USB Lead.nam" });
+  it("keeps the NAM popup open when the device does not confirm the requested download", async () => {
+    const download = vi.spyOn(deviceApi, "downloadTone").mockResolvedValue();
+    vi.spyOn(deviceApi, "listDeviceFiles").mockResolvedValue([]);
     render(<ToneLabPage/>);
     fireEvent.click(screen.getByRole("button", { name: "Save to device" }));
     const dialog = screen.getByRole("dialog", { name: "Save NAM to device" });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save NAM" }));
-    const finish = await within(dialog).findByRole("button", { name: "Choose HeadRush NAM folder" });
-    fireEvent.click(finish);
-    expect(await within(dialog).findByRole("alert")).toHaveTextContent("already exists");
-    fireEvent.change(within(dialog).getByLabelText("Model name"), { target: { value: "USB Lead" } });
-    fireEvent.click(finish);
-    const completion = await screen.findByRole("dialog", { name: "NAM copied to HeadRush" });
-    expect(within(completion).getByLabelText("Copied NAM location")).toHaveTextContent("Neural Amp Modeler/User/USB Lead.nam");
-    fireEvent.click(within(completion).getByRole("button", { name: "Done" }));
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
-    expect(transfer).toHaveBeenLastCalledWith("E:/Neural Amp Modeler", "Neural Amp Modeler/Tone 3000/QA A2.nam", "Neural Amp Modeler/User/USB Lead.nam");
+    expect(await within(dialog).findByRole("alert", {}, { timeout: 3000 })).toHaveTextContent(/could not confirm the file/i);
+    expect(within(dialog).getByRole("button", { name: "Save NAM" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Dismiss NAM save result" })).not.toBeInTheDocument();
+    expect(useAppStore.getState().tones[0].downloaded).not.toBe(true);
     expect(download).toHaveBeenCalledOnce();
   });
 
@@ -199,6 +183,7 @@ describe("TonePilot audition workspace UI", () => {
     const dialog = screen.getByRole("dialog", { name: "Save NAM to device" });
     const save = within(dialog).getByRole("button", { name: "Save NAM" });
     fireEvent.click(save);
+    fireEvent.submit(dialog.querySelector("form")!);
     await waitFor(() => expect(download).toHaveBeenCalledOnce());
     expect(save).toBeDisabled();
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
@@ -233,6 +218,7 @@ describe("TonePilot audition workspace UI", () => {
   });
 
   it("requires a name and an available device for NAM saving", () => {
+    const download = vi.spyOn(deviceApi, "downloadTone").mockResolvedValue();
     render(<ToneLabPage/>);
     fireEvent.click(screen.getByRole("button", { name: "Save to device" }));
     const dialog = screen.getByRole("dialog", { name: "Save NAM to device" });
@@ -242,6 +228,8 @@ describe("TonePilot audition workspace UI", () => {
     act(() => useAppStore.setState({ device: null }));
     expect(within(dialog).getByRole("button", { name: "Save NAM" })).toBeDisabled();
     expect(within(dialog).getByRole("alert")).toHaveTextContent(/Connect Flex Prime before saving/i);
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(download).not.toHaveBeenCalled();
   });
 
   it("does not show the NAM output shortcut for an IR-only treatment", () => {
@@ -313,7 +301,7 @@ describe("TonePilot audition workspace UI", () => {
   });
 
   it("confirms a successful rig save while keeping the active audition controls", async () => {
-    useAppStore.setState({ auditioningToneId: tone.id });
+    useAppStore.setState({ auditioningToneId: tone.id, testRigReturn: { id: "previous", name: "Previous rig", audition: { tone, model } } });
     const save = vi.spyOn(useAppStore.getState(), "saveAuditionRig").mockResolvedValue({ rigId: "saved-rig", name: "QA Amp", setlistName: "Show" });
     render(<ToneLabPage/>);
 

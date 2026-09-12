@@ -9,6 +9,10 @@
     "dialog:allow-save",
     "fs:allow-read-text-file",
     "fs:allow-write-text-file",
-    "fs:deny-default"
+    "fs:deny-default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [{ "url": "https://ko-fi.com/mattc_" }]
+    }
   ]
 }

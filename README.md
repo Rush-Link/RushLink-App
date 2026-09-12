@@ -19,7 +19,7 @@ Install the Rust MSVC toolchain and Microsoft C++ Build Tools, then:
 npm run tauri dev
 ```
 
-RushLink connects only to a `.local`, loopback, or private-LAN address. Add a manual address in Settings if discovery is unavailable.
+RushLink communicates with HeadRush over Wi-Fi only, using a `.local`, loopback, or private-LAN address. Add a manual address in Settings if discovery is unavailable. NAM downloads save to `Neural Amp Modeler/Tone 3000`; the save popup lets you name the model or save the active audition as a rig. Custom NAM destinations are unavailable through the verified Wi-Fi API.
 
 ## Project status
 

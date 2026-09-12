@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { demoRigs, demoSetlists } from "../data/demo-data";
+import { cloudTones, demoDevice, demoRigs, demoSetlists } from "../data/demo-data";
+import { deviceApi } from "../services/device-api";
 import {
   AuditionRigNameConflictError,
   useAppStore,
@@ -32,7 +33,12 @@ function reflectedSaveDefaults(programs: number[] | null = [3]) {
 describe("TonePilotSaveRigDialog", () => {
   beforeEach(() => {
     saveAuditionRig.mockReset().mockResolvedValue(saveResult);
+    vi.spyOn(deviceApi, "isNative").mockReturnValue(true);
     useAppStore.setState({
+      device: { ...demoDevice, status: "ready" },
+      auditioningToneId: cloudTones[0].id,
+      auditionBusy: false,
+      testRigReturn: { id: demoRigs[0].id, name: demoRigs[0].name, audition: { tone: cloudTones[0] } },
       rigs: structuredClone(demoRigs),
       setlists: structuredClone(demoSetlists),
       liveSnapshot: null,
@@ -182,5 +188,113 @@ describe("TonePilotSaveRigDialog", () => {
 
   it("generates a sanitized, case-insensitively unique default name", () => {
     expect(nextAvailableHeadRushRigName("Lead/One", ["LeadOne", "leadone 2"])).toBe("LeadOne 3");
+  });
+
+  it("allows only one synchronous submission, freezes all fields, and blocks closing until saving finishes", async () => {
+    let finishSave!: (result: AuditionRigSaveResult) => void;
+    saveAuditionRig.mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve; }));
+    const onClose = vi.fn();
+    const onSaved = vi.fn();
+    render(<TonePilotSaveRigDialog open onClose={onClose} onSaved={onSaved} toneTitle="Complete rig"/>);
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    fireEvent.change(within(dialog).getByLabelText("Rig name"), { target: { value: demoRigs[0].name } });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /replace the existing rig/i }));
+    const form = dialog.querySelector("form")!;
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    act(() => {
+      fireEvent.submit(form);
+      fireEvent.submit(form);
+      fireEvent.click(close);
+    });
+
+    expect(saveAuditionRig).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(form).toHaveAttribute("aria-busy", "true");
+    for (const field of form.querySelectorAll('input,select,button[role="radio"]')) expect(field).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(within(dialog).getByRole("button", { name: "Replace existing rig" })).toBeDisabled();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onSaved).not.toHaveBeenCalled();
+
+    await act(async () => finishSave(saveResult));
+    expect(onSaved).toHaveBeenCalledExactlyOnceWith(saveResult);
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("keeps the submitted form stable across title changes and unlocks it after an error", async () => {
+    let rejectSave!: (error: Error) => void;
+    saveAuditionRig.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject; }));
+    const onClose = vi.fn();
+    const { rerender } = render(<TonePilotSaveRigDialog open onClose={onClose} toneTitle="Original rig"/>);
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save to Rigs" }));
+    rerender(<TonePilotSaveRigDialog open onClose={onClose} toneTitle="Changed selection"/>);
+
+    expect(within(dialog).getByLabelText("Rig name")).toHaveValue("Original rig");
+    expect(within(dialog).getByLabelText("Rig name")).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => rejectSave(new Error("Device storage is full")));
+
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Device storage is full");
+    expect(within(dialog).getByLabelText("Rig name")).toBeEnabled();
+    expect(within(dialog).getByLabelText("Rig name")).toHaveValue("Original rig");
+    expect(within(dialog).getByRole("button", { name: "Save to Rigs" })).toBeEnabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["no connected device", { device: null }, /Connect a HeadRush/],
+    ["an unavailable connection", { device: { ...demoDevice, status: "error" } }, /Connect a HeadRush/],
+    ["no active audition", { auditioningToneId: null }, /Start an audition/],
+    ["unproven audition identity", { testRigReturn: null }, /Restart the audition/],
+    ["a different active tone", { auditioningToneId: "different-tone" }, /Restart the audition/],
+    ["another audition operation", { auditionBusy: true }, /Wait for the current audition operation/],
+  ] as const)("prevents saving with %s", (_label, state, message) => {
+    useAppStore.setState(state as never);
+    render(<TonePilotSaveRigDialog open onClose={vi.fn()} toneTitle="Unavailable rig"/>);
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent(message);
+    expect(within(dialog).getByRole("button", { name: "Save to Rigs" })).toBeDisabled();
+    fireEvent.submit(dialog.querySelector("form")!);
+    expect(saveAuditionRig).not.toHaveBeenCalled();
+  });
+
+  it("requires the native desktop connection and rechecks a disconnect in the submit turn", () => {
+    const { rerender } = render(<TonePilotSaveRigDialog open onClose={vi.fn()} toneTitle="Connected rig"/>);
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    const form = dialog.querySelector("form")!;
+    act(() => {
+      useAppStore.setState({ device: null });
+      fireEvent.submit(form);
+    });
+    expect(saveAuditionRig).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: "Save to Rigs" })).toBeDisabled();
+
+    vi.mocked(deviceApi.isNative).mockReturnValue(false);
+    act(() => useAppStore.setState({ device: { ...demoDevice, status: "ready" } }));
+    rerender(<TonePilotSaveRigDialog open onClose={vi.fn()} toneTitle="Desktop required"/>);
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("Connect a HeadRush");
+    expect(within(dialog).getByRole("button", { name: "Save to Rigs" })).toBeDisabled();
+    fireEvent.submit(form);
+    expect(saveAuditionRig).not.toHaveBeenCalled();
+  });
+
+  it("reports a saved rig with a setlist warning as success without retrying the rig write", async () => {
+    const partialResult = { ...saveResult, warning: "Saved rig was saved to Rigs, but it could not be added to Live set." };
+    saveAuditionRig.mockResolvedValueOnce(partialResult);
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(<TonePilotSaveRigDialog open onClose={onClose} onSaved={onSaved} toneTitle="Saved rig"/>);
+    const dialog = screen.getByRole("dialog", { name: "Save audition to Rigs" });
+    fireEvent.change(within(dialog).getByLabelText("Add to setlist"), { target: { value: demoSetlists[0].id } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save to Rigs" }));
+
+    await waitFor(() => expect(onSaved).toHaveBeenCalledExactlyOnceWith(partialResult));
+    expect(saveAuditionRig).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(within(dialog).queryByRole("alert")).not.toBeInTheDocument();
   });
 });

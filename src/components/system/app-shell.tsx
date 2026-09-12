@@ -1,11 +1,15 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Activity, ChevronLeft, ChevronRight, Cloud, Command, Cpu, Gauge, HardDrive, LayoutDashboard, Library, ListMusic, Menu, RadioTower, RotateCcw, Settings, Sparkles, Workflow, Wrench, Wifi } from "lucide-react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Activity, ChevronLeft, ChevronRight, Cloud, Command, Cpu, ExternalLink, Gauge, HardDrive, LayoutDashboard, Library, ListMusic, Menu, RadioTower, RotateCcw, Settings, Sparkles, Workflow, Wrench, Wifi } from "lucide-react";
 import { useAppStore } from "../../stores/app-store";
 import { cn } from "../../lib/utils";
 import { Button, IconButton } from "../ui";
 import { ConnectionOrb, CpuIndicator } from "./controls";
 import { preloadPage } from "../../page-loaders";
 import { RushLinkMark } from "./rushlink-mark";
+
+const SUPPORT_URL = "https://ko-fi.com/mattc_";
 
 export const navigation = [
   { id: "dashboard", label: "Overview", icon: LayoutDashboard },
@@ -33,10 +37,22 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
   const preferences = useAppStore((s) => s.preferences);
   const applyPending = useAppStore((s) => s.applyPending);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [supportError, setSupportError] = useState(false);
   const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && Boolean(window.matchMedia?.("(max-width: 760px)").matches));
   const current = navigation.find((item) => item.id === (page === "setlists" ? "rigs" : page)) ?? navigation[0];
   const deviceReady = Boolean(device && ["ready", "demo"].includes(device.status));
   const navigate = (next: string) => { setPage(next); setMobileNavigationOpen(false); };
+  const openSupport = (event: MouseEvent<HTMLAnchorElement>) => {
+    setSupportError(false);
+    if (!isTauri()) {
+      setMobileNavigationOpen(false);
+      return;
+    }
+    event.preventDefault();
+    void openUrl(SUPPORT_URL)
+      .then(() => setMobileNavigationOpen(false))
+      .catch(() => setSupportError(true));
+  };
   useEffect(() => {
     if (!mobileNavigationOpen) return;
     const close = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileNavigationOpen(false); };
@@ -74,6 +90,12 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
         </button>)}
         <span className="nav-section">{!collapsed && "SYSTEM"}</span>
         {navigation.slice(7).map((item) => <button key={item.id} className={cn(page === item.id && "active")} onPointerEnter={() => preloadPage(item.id)} onFocus={() => preloadPage(item.id)} onClick={() => navigate(item.id)} title={collapsed ? item.label : undefined}><item.icon size={19} /><span>{item.label}</span></button>)}
+        <a className="sidebar__support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" aria-label="Support me on Ko-fi (opens external site)" title="Support me on Ko-fi (opens external site)" onClick={openSupport}>
+          <svg className="sidebar__support-logo" width="19" height="19" viewBox="4 6 19 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8h11v7a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5V8Zm11 2h1a3 3 0 0 1 0 6h-1M9 12c0-2 3-2 3 0 0-2 3-2 3 0 0 2-3 4-3 4s-3-2-3-4Z"/></svg>
+          <span className="sidebar__support-label">Support me</span>
+          <ExternalLink className="sidebar__support-external" size={14} aria-hidden="true"/>
+        </a>
+        {supportError && <p className="sidebar__support-error" role="alert">Couldn’t open Ko-fi. Try again, or visit ko-fi.com/mattc_ in your browser.</p>}
       </nav>
       <div className="sidebar__bottom">
         <button className="collapse-button collapse-button--desktop" aria-expanded={!collapsed} aria-label={collapsed ? "Expand" : "Collapse"} title={collapsed ? "Expand sidebar" : "Collapse sidebar"} onClick={toggleSidebar}>{collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}<span>{collapsed ? "Expand" : "Collapse"}</span></button>
