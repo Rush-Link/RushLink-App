@@ -29,8 +29,8 @@ reduced-height keyboard space, Reference Run, the full editor, Global EQ selecti
 and dropdown navigation/focus. Existing tablet tests provide regression coverage.
 
 Browser emulation does not verify native Android system bars, keyboard behaviour
-or a physical phone. Those checks require a future native build; builds and
-releases remain paused at the user's request.
+or a physical phone. Use the native phone emulator workflow in WORKFLOW.md for Android startup checks;
+physical hardware behaviour still needs a real device.
 
 Validation on 12 September 2026 passed all 66 combined phone/tablet browser tests,
 56 affected UI/style regression tests and no-emit TypeScript checking. Following
@@ -47,4 +47,4 @@ The initial affected UI suite passed 82 tests; after the final settling changes,
 all 72 app/ToneMod/style checks passed again, as did no-emit TypeScript checking.
 Final screenshots are in `release-artifacts/phone-smooth-final/`. Phone catalogue
 filters are collapsed behind Filters, and the toolbar is compact enough to show
-a complete result card at 320×740. Builds and releases remain paused.
+a complete result card at 320×740. Native phone testing is available through `npm run phone`; see WORKFLOW.md.

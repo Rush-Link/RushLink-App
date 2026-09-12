@@ -51,7 +51,7 @@ describe("Rig Editor high-risk workflows", () => {
     fireEvent.click(result as HTMLElement);
 
     await waitFor(() => expect(addBlock).toHaveBeenCalledWith(expect.objectContaining({ name: "Tape Echo", slot: 9, enabled: true, empty: false })));
-    expect(screen.queryByText("Choose a block")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("Choose a block")).not.toBeInTheDocument());
   });
 
   it("routes utility, stereo and tails changes while keeping Mix unavailable for a straight chain", () => {

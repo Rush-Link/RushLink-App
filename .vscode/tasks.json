@@ -29,6 +29,15 @@
       "runOptions": { "instanceLimit": 1 }
     },
     {
+      "label": "RushLink: Run on phone",
+      "type": "npm",
+      "script": "phone",
+      "detail": "Build the emulator APK, start the phone, install and launch RushLink.",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
       "label": "RushLink: Build locally (Windows + Android)",
       "type": "npm",
       "script": "build:local",
@@ -56,9 +65,19 @@
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "runOptions": { "instanceLimit": 1 }
     },
+    {
+      "label": "RushLink: Build iPhone and iPad (GitHub Actions)",
+      "type": "npm",
+      "script": "build:ios",
+      "detail": "Build a private unsigned universal iOS package and simulator app on GitHub, test both device families, and download verified artifacts.",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
     { "label": "RushLink: Check setup", "type": "npm", "script": "doctor", "problemMatcher": [] },
     { "label": "RushLink: Prepare Android tools", "type": "npm", "script": "android:setup", "problemMatcher": [] },
     { "label": "RushLink: Stop tablet", "type": "npm", "script": "tablet:stop", "problemMatcher": [] },
+    { "label": "RushLink: Stop phone", "type": "npm", "script": "phone:stop", "problemMatcher": [] },
     { "label": "RushLink: Open build folder", "type": "npm", "script": "builds:open", "problemMatcher": [] }
   ]
 }

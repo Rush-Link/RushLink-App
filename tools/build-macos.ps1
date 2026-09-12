@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-Builds Apple Silicon and Intel DMGs in the private GitHub repository.
+Builds macOS DMGs or universal iOS previews in the private GitHub repository.
 .DESCRIPTION
-Creates an isolated source snapshot and pushes a new build/macos-* branch, then
+Creates an isolated source snapshot and pushes a new build/<platform>-* branch, then
 waits for Actions and downloads verified installers. The current branch, working
 tree and index are preserved. No tags, releases or merges are created.
 .EXAMPLE
@@ -10,10 +10,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -Check
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1
 .EXAMPLE
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -DownloadRun 34693833500
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -Platform $Platform -DownloadRun 34693833500
 #>
 [CmdletBinding(DefaultParameterSetName = 'Build')]
 param(
+  [ValidateSet('macos','ios')][string]$Platform = 'macos',
   [Parameter(Mandatory, ParameterSetName = 'Check')][switch]$Check,
   [Parameter(ParameterSetName = 'Build')][switch]$NoWait,
   [Parameter(Mandatory, ParameterSetName = 'Download')][ValidateRange(1, [long]::MaxValue)][long]$DownloadRun,
@@ -68,7 +69,7 @@ function Test-EligibleNewSource {
   if ($Path -match '^tools/[^/]+\.(ps1|mjs|js)$|^tools/lib/.+\.(ps1|mjs|js|json)$|^docs/[^/]+\.md$') { return $true }
   if ($Path -match '^\.vscode/(tasks|extensions)\.json$|^\.github/workflows/[^/]+\.ya?ml$') { return $true }
   if ($Path -match '^(package(-lock)?\.json|index\.html|(vite|vitest|playwright)(\.[^/]+)?\.config\.ts|tsconfig(\.[^/]+)?\.json)$') { return $true }
-  if ($Path -match '^src-tauri/(src/.+\.rs|build\.rs|Cargo\.(toml|lock)|tauri(\.[^/]+)?\.conf\.json|capabilities/[^/]+\.json|icons/.+\.(png|svg|ico|icns))$') { return $true }
+  if ($Path -match '^src-tauri/(src/.+\.rs|build\.rs|Cargo\.(toml|lock)|tauri(\.[^/]+)?\.conf\.json|capabilities/[^/]+\.json|icons/.+\.(png|svg|ico|icns)|Info\.ios\.plist)$') { return $true }
   if ($Path -match '^src-tauri/gen/android/') {
     return $Path -match '/(\.gitignore|\.editorconfig|gradlew(\.bat)?|gradle\.properties|gradle-wrapper\.properties|proguard-rules\.pro)$' -or
       $Path -match '\.(gradle|gradle\.kts|kt)$' -or
@@ -164,7 +165,7 @@ function Assert-PrivateRepository {
 function Get-Run {
   param([long]$Id)
   $run = Get-GitHub "/actions/runs/$Id"
-  if ($run.path -ne '.github/workflows/macos-build.yml' -or $run.head_repository.full_name -cne $expectedRepository -or $run.head_sha -notmatch '^[0-9a-f]{40}$') {
+  if ($run.path -ne ".github/workflows/$Platform-build.yml" -or $run.head_repository.full_name -cne $expectedRepository -or $run.head_sha -notmatch '^[0-9a-f]{40}$') {
     throw 'The requested run is not a macOS build from the expected private repository.'
   }
   $run
@@ -200,7 +201,9 @@ function Get-SourceVersion {
 
 function Receive-CompletedArtifacts {
   param($Run, $Jobs, [string]$Version, [string]$RunDirectory)
-  $manifestPath = Join-Path $RunDirectory 'macos-verified.json'
+  $buildPlatform = if ($Platform -eq 'ios') { 'ios' } else { 'macos' }
+  $architectures = if ($buildPlatform -eq 'ios') { @('device','simulator') } else { @('arm64','x86_64') }
+  $manifestPath = Join-Path $RunDirectory "$buildPlatform-verified.json"
   $verified = @()
   if (Test-Path -LiteralPath $manifestPath) { $verified = @(Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json | ForEach-Object { $_ }) }
   foreach ($record in $verified) {
@@ -208,30 +211,30 @@ function Receive-CompletedArtifacts {
     if (-not (Test-Path -LiteralPath $record.path) -or (Get-FileHash -LiteralPath $record.path -Algorithm SHA256).Hash.ToLowerInvariant() -ne $record.sha256) { throw 'A previously downloaded installer no longer matches its checksum.' }
   }
   $artifacts = Get-GitHub "/actions/runs/$($Run.id)/artifacts"
-  foreach ($arch in @('arm64', 'x86_64')) {
-    $successfulJob = @($Jobs | Where-Object { $_.name.EndsWith(", $arch)") -and $_.conclusion -eq 'success' })
+  foreach ($arch in $architectures) {
+    $successfulJob = @($Jobs | Where-Object { ($_.name.EndsWith(", $arch)") -or $_.name -eq "ios ($arch)") -and $_.conclusion -eq 'success' })
     if ($successfulJob.Count -ne 1 -or @($verified | Where-Object arch -eq $arch).Count) { continue }
-    $artifact = @($artifacts.artifacts | Where-Object { $_.name -eq "RushLink-macos-$arch-$($Run.run_number)" -and -not $_.expired })
+    $artifact = @($artifacts.artifacts | Where-Object { $_.name -eq "RushLink-$buildPlatform-$arch-$($Run.run_number)" -and -not $_.expired })
     if ($artifact.Count -ne 1) { throw "Expected exactly one unexpired $arch artifact for run $($Run.id)." }
-    $dmgName = if ($arch -eq 'arm64') { "RushLink_${Version}_aarch64.dmg" } else { "RushLink_${Version}_x64.dmg" }
-    $checksumName = "SHA256SUMS-macos-$arch.txt"
+    $dmgName = if ($buildPlatform -eq 'ios') { if ($arch -eq 'device') { "RushLink_${Version}_ios-iphone-ipad_unsigned.ipa" } else { "RushLink_${Version}_ios-simulator-arm64.app.zip" } } elseif ($arch -eq 'arm64') { "RushLink_${Version}_aarch64.dmg" } else { "RushLink_${Version}_x64.dmg" }
+    $checksumName = "SHA256SUMS-$buildPlatform-$arch.txt"
     $archivePath = Join-Path $RunDirectory ("artifact-$($artifact[0].id)-" + [Guid]::NewGuid().ToString('N') + '.zip')
     Save-GitHubDownload "/actions/artifacts/$($artifact[0].id)/zip" $archivePath
     $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
     try {
       $entries = @($archive.Entries)
-      if ($entries.Count -ne 2 -or @($entries | Where-Object FullName -CEQ $dmgName).Count -ne 1 -or @($entries | Where-Object FullName -CEQ $checksumName).Count -ne 1) { throw 'Artifact ZIP must contain only the expected DMG and checksum file.' }
+      if ($entries.Count -ne 2 -or @($entries | Where-Object FullName -CEQ $dmgName).Count -ne 1 -or @($entries | Where-Object FullName -CEQ $checksumName).Count -ne 1) { throw 'Artifact ZIP must contain only the expected app package and checksum file.' }
       $reader = [IO.StreamReader]::new($archive.GetEntry($checksumName).Open())
       try { $checksum = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
       if ($checksum -cnotmatch '^(?<hash>[a-fA-F0-9]{64}) [ *](?<name>[^/\\\r\n]+)$' -or $Matches.name -cne $dmgName) { throw 'Invalid installer checksum record.' }
       $expectedHash = $Matches.hash.ToLowerInvariant()
-      $architectureDirectory = Join-Path $RunDirectory "macos-$arch"
+      $architectureDirectory = Join-Path $RunDirectory "$buildPlatform-$arch"
       New-Item -ItemType Directory -Force -Path $architectureDirectory | Out-Null
       $destination = Join-Path $architectureDirectory $dmgName
       $temporaryInstaller = Join-Path $architectureDirectory ([Guid]::NewGuid().ToString('N') + '.dmg')
       [IO.Compression.ZipFileExtensions]::ExtractToFile($archive.GetEntry($dmgName), $temporaryInstaller)
       $actualHash = (Get-FileHash -LiteralPath $temporaryInstaller -Algorithm SHA256).Hash.ToLowerInvariant()
-      if ($actualHash -cne $expectedHash) { throw 'Downloaded DMG checksum does not match.' }
+      if ($actualHash -cne $expectedHash) { throw 'Downloaded app package checksum does not match.' }
       if (Test-Path -LiteralPath $destination) {
         if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant() -ne $actualHash) { throw 'Refusing to replace a different installer in this run directory.' }
         Remove-Item -LiteralPath $temporaryInstaller
@@ -240,7 +243,7 @@ function Receive-CompletedArtifacts {
       $record = [pscustomobject]@{ arch = $arch; name = $dmgName; path = $destination; bytes = (Get-Item -LiteralPath $destination).Length; sha256 = $actualHash; artifact_id = $artifact[0].id; artifact_url = "$($Run.html_url)/artifacts/$($artifact[0].id)"; run_id = $Run.id; run_url = $Run.html_url; source_sha = $Run.head_sha; verified_at = [DateTime]::UtcNow.ToString('o') }
       $verified += $record
       Write-JsonFile $manifestPath @($verified)
-      Write-Host "Verified $arch DMG: $destination"
+      Write-Host "Verified $arch package: $destination"
       Write-Host "SHA256 $actualHash"
     } finally { $archive.Dispose() }
   }
@@ -262,13 +265,15 @@ try {
   $headers = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'RushLink-private-build' }
   $token = $null
   $repository = Assert-PrivateRepository
-  $workflow = Get-GitHub '/actions/workflows/macos-build.yml'
-  if ($workflow.state -ne 'active') { throw 'The macOS Actions workflow is not active.' }
+  if ($Platform -eq 'macos') {
+    $workflow = Get-GitHub '/actions/workflows/macos-build.yml'
+    if ($workflow.state -ne 'active') { throw 'The macOS Actions workflow is not active.' }
+  }
   if (-not $DownloadRun -and $repository.permissions.push -ne $true) { throw 'GitHub push access is required to create a private build branch.' }
-  $workflowText = Get-Content -LiteralPath (Join-Path $repoRoot '.github/workflows/macos-build.yml') -Raw
-  if ($workflowText -notmatch 'build/macos-\*' -or $workflowText -notmatch 'github\.event\.repository\.private == true' -or $workflowText -notmatch 'contents: read' -or $workflowText -match 'contents: write|tauri-apps/tauri-action|releaseDraft:|gh release') { throw 'The local macOS workflow must remain a private artifact-only build.' }
+  $workflowText = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$Platform-build.yml") -Raw
+  if ($workflowText -notmatch ("build/$Platform-" + '\*') -or $workflowText -notmatch 'github\.event\.repository\.private == true' -or $workflowText -notmatch 'contents: read' -or $workflowText -match 'contents: write|tauri-apps/tauri-action|releaseDraft:|gh release') { throw 'The local Apple workflow must remain a private artifact-only build.' }
   if ($Check) {
-    Write-Host "Ready: private $expectedRepository; macOS workflow active; GitHub authenticated."
+    Write-Host "Ready: private $expectedRepository; $Platform workflow configured; GitHub authenticated."
     Write-Host "$($sourceManifest.Tracked.Count) tracked files and $($sourceManifest.NewSource.Count) eligible new source files will be considered."
     $sourceManifest.NewSource | ForEach-Object { Write-Host "New source: $_" }
     Write-Host 'Preflight only: no files, commits, branches or workflow runs were created.'
@@ -309,8 +314,8 @@ try {
       $changes = @((Invoke-Git @('diff', '--cached', '--name-status', $base)).Lines)
     } finally { $env:GIT_INDEX_FILE = $previousIndex }
     if ((Get-FileHash -LiteralPath $indexPath -Algorithm SHA256).Hash -ne $indexHash -or (Get-GitValue @('rev-parse', 'HEAD')) -ne $base -or (Get-GitValue @('rev-parse', '--abbrev-ref', 'HEAD')) -ne $originalBranch) { throw 'Local Git state changed during preparation; no branch was pushed.' }
-    $commit = Get-GitValue @('commit-tree', $tree, '-p', $base, '-m', 'Build private macOS preview from current RushLink source')
-    $branch = 'build/macos-' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + $commit.Substring(0, 8)
+    $commit = Get-GitValue @('commit-tree', $tree, '-p', $base, '-m', "Build private $Platform preview from current RushLink source")
+    $branch = "build/$Platform-" + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + $commit.Substring(0, 8)
     Invoke-Git @('check-ref-format', '--branch', $branch) | Out-Null
     if ((Invoke-AuthenticatedGit @('ls-remote', '--exit-code', '--heads', "https://github.com/$expectedRepository.git", "refs/heads/$branch") -AllowFailure).Code -ne 2) { throw 'Build branch is not confirmed to be new.' }
     Assert-PrivateRepository | Out-Null
@@ -323,18 +328,18 @@ try {
     $run = $null
     for ($attempt = 0; $attempt -lt 24 -and -not $run; $attempt++) {
       $branchQuery = [Uri]::EscapeDataString($branch)
-      $runs = Get-GitHub "/actions/workflows/macos-build.yml/runs?branch=$branchQuery&event=push&per_page=20"
-      $run = $runs.workflow_runs | Where-Object head_sha -EQ $commit | Sort-Object created_at -Descending | Select-Object -First 1
+      $runs = Get-GitHub "/actions/runs?branch=$branchQuery&event=push&per_page=20"
+      $run = $runs.workflow_runs | Where-Object { $_.head_sha -eq $commit -and $_.path -eq ".github/workflows/$Platform-build.yml" } | Sort-Object created_at -Descending | Select-Object -First 1
       if (-not $run) { Start-Sleep -Seconds 5 }
     }
     if (-not $run) { throw "Branch $branch was pushed, but no Actions run appeared. Check GitHub Actions before starting another build." }
     $run = Get-Run $run.id
     if ($run.head_sha -ne $commit -or $run.head_branch -ne $branch) { throw 'Actions run source does not match the snapshot.' }
   }
-  Write-Host "macOS Actions run: $($run.html_url)"
-  if ($NoWait) { Write-Host "Download later: powershell -File tools/build-macos.ps1 -DownloadRun $($run.id)"; return }
+  Write-Host "$Platform Actions run: $($run.html_url)"
+  if ($NoWait) { Write-Host "Download later: powershell -File tools/build-macos.ps1 -Platform $Platform -DownloadRun $($run.id)"; return }
   $runDirectory = Join-Path $outputRoot $run.head_sha
-  $existingEvidence = Join-Path $runDirectory 'macos-verified.json'
+  $existingEvidence = Join-Path $runDirectory "$Platform-verified.json"
   if (Test-Path -LiteralPath $existingEvidence) {
     $previousRecords = @(Get-Content -LiteralPath $existingEvidence -Raw | ConvertFrom-Json | ForEach-Object { $_ })
     if (@($previousRecords | Where-Object run_id -NE $run.id).Count) {
@@ -352,12 +357,12 @@ try {
       Write-Host ("{0}: {1} {2}" -f $job.name, $(if ($job.conclusion) { $job.conclusion } else { $job.status }), $step)
     }
     $verified = @(Receive-CompletedArtifacts $run $jobs $version $runDirectory)
-    Write-JsonFile (Join-Path $runDirectory 'macos-build-evidence.json') ([pscustomobject]@{ repository = $expectedRepository; run_id = $run.id; source_sha = $run.head_sha; branch = $run.head_branch; version = $version; url = $run.html_url; status = $run.status; conclusion = $run.conclusion; jobs = $jobs; installers = $verified; checked_at = [DateTime]::UtcNow.ToString('o') })
+    Write-JsonFile (Join-Path $runDirectory "$Platform-build-evidence.json") ([pscustomobject]@{ repository = $expectedRepository; run_id = $run.id; source_sha = $run.head_sha; branch = $run.head_branch; version = $version; url = $run.html_url; status = $run.status; conclusion = $run.conclusion; jobs = $jobs; installers = $verified; checked_at = [DateTime]::UtcNow.ToString('o') })
     $failedJobs = @($jobs | Where-Object { $_.status -eq 'completed' -and $_.conclusion -notin @('success', 'skipped') })
-    if ($failedJobs.Count -or ($run.status -eq 'completed' -and $run.conclusion -ne 'success')) { throw "macOS build failed or was cancelled. Inspect $($run.html_url). Any completed installers remain in $runDirectory." }
+    if ($failedJobs.Count -or ($run.status -eq 'completed' -and $run.conclusion -ne 'success')) { throw "$Platform build failed or was cancelled. Inspect $($run.html_url). Any completed installers remain in $runDirectory." }
     if ($run.status -eq 'completed') {
-      if ($verified.Count -ne 2) { throw 'The successful run did not provide both verified Mac architectures.' }
-      Write-Host "Both macOS installers are verified: $runDirectory"
+      if ($verified.Count -ne 2) { throw 'The successful run did not provide both verified Apple build targets.' }
+      Write-Host "Both $Platform packages are verified: $runDirectory"
       break
     }
     if ([DateTime]::UtcNow -ge $deadline) { throw "Wait timeout. The GitHub run continues; resume with -DownloadRun $($run.id)." }
