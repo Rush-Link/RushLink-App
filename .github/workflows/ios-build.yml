@@ -1,0 +1,74 @@
+name: Build RushLink iPhone and iPad preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ['build/ios-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-preview-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    if: github.event.repository.private == true
+    name: ios (${{ matrix.kind }})
+    runs-on: macos-15
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [device, simulator]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios,aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ios-${{ matrix.kind }}
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Prepare universal iPhone and iPad project
+        run: |
+          set -euo pipefail
+          command -v xcodegen || brew install xcodegen
+          npm run tauri -- ios init --ci
+          ruby -ryaml -e 'p="src-tauri/gen/apple/project.yml"; d=YAML.load_file(p); d["targets"].each_value { |t| t["settings"] ||= {}; t["settings"]["base"] ||= {}; t["settings"]["base"]["TARGETED_DEVICE_FAMILY"] = "1,2" }; File.write(p,YAML.dump(d))'
+          cd src-tauri/gen/apple
+          xcodegen generate
+      - name: Build unsigned iOS archive
+        env:
+          BUILD_KIND: ${{ matrix.kind }}
+        run: |
+          set -euo pipefail
+          target=aarch64
+          if [ "$BUILD_KIND" = simulator ]; then target=aarch64-sim; fi
+          npm run tauri -- ios build --ci --no-sign --archive-only --target "$target" -- --locked
+      - name: Verify, package and test iPhone and iPad
+        run: node tools/ios-artifacts.mjs ${{ matrix.kind }}
+      - name: Upload private app package
+        uses: actions/upload-artifact@v4
+        with:
+          name: RushLink-ios-${{ matrix.kind }}-${{ github.run_number }}
+          path: release-artifacts/ios-${{ matrix.kind }}/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload simulator test evidence
+        if: always() && matrix.kind == 'simulator'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RushLink-ios-simulator-checks-${{ github.run_number }}
+          path: release-artifacts/ios-checks/
+          if-no-files-found: ignore
+          retention-days: 14
