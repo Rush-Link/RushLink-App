@@ -1,9 +1,10 @@
 import { AlertTriangle, Check, Gauge, Guitar, ListMusic, Palette, Save } from "lucide-react";
-import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent } from "react";
 import { Button, Dialog, Input, Select } from "../components/ui";
 import { colorForIndex, denormalizeValue } from "../domain/headrush-reflection";
 import type { HeadRushPropertyMeta, HeadRushSubtree, LiveDeviceSnapshot } from "../domain/types";
 import { deviceErrorMessage } from "../services/device-errors";
+import { deviceApi } from "../services/device-api";
 import {
   AuditionRigNameConflictError,
   sanitizeHeadRushRigName,
@@ -97,6 +98,14 @@ export interface TonePilotSaveRigDialogProps {
   toneTitle: string;
 }
 
+function auditionSaveUnavailable(state: ReturnType<typeof useAppStore.getState>): string | null {
+  if (!deviceApi.isNative() || state.device?.status !== "ready") return "Connect a HeadRush device before saving this audition.";
+  if (!state.auditioningToneId) return "Start an audition before saving its Test Rig.";
+  if (state.testRigReturn?.audition?.tone.id !== state.auditioningToneId) return "Restart the audition so RushLink can identify the exact model to save.";
+  if (state.auditionBusy) return "Wait for the current audition operation to finish before saving.";
+  return null;
+}
+
 export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: TonePilotSaveRigDialogProps) {
   const store = useAppStore();
   const formId = `${useId()}-tonepilot-save-rig`;
@@ -110,6 +119,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
   const [overwriteConfirmed, setOverwriteConfirmed] = useState(false);
   const [deviceDuplicateName, setDeviceDuplicateName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [error, setError] = useState<string | null>(null);
 
   const programChangeSupported = Array.isArray(store.liveSubtree?.[RIGS_PATH]?.value?.availableProgMIDICC);
@@ -123,13 +133,16 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
   const parsedTempo = Number(tempoBpm);
   const fixedTempoInvalid = tempoMode === "fixed" && (!Number.isFinite(parsedTempo) || parsedTempo < MIN_TEMPO || parsedTempo > MAX_TEMPO);
   const nameWasSanitized = Boolean(name && sanitizedName !== name);
+  const unavailable = busy ? null : auditionSaveUnavailable(store);
   const canSubmit = Boolean(sanitizedName)
+    && !busy
+    && !unavailable
     && !fixedTempoInvalid
     && (!duplicateName || overwriteConfirmed)
     && typeof store.saveAuditionRig === "function";
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || saving.current) return;
     const tempo = reflectedTempoBpm(store.liveSubtree, store.liveSnapshot);
     setName(nextAvailableHeadRushRigName(toneTitle, store.rigs.map((rig) => rig.name)));
     setSetlistId("");
@@ -154,12 +167,13 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
   };
 
   const close = () => {
-    if (!busy) onClose();
+    if (!saving.current) onClose();
   };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || saving.current || auditionSaveUnavailable(useAppStore.getState())) return;
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -183,6 +197,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
       }
       setError(deviceErrorMessage(saveError, "Saving the audition rig"));
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   };
@@ -207,7 +222,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
       ><Save size={15}/> {duplicateName ? "Replace existing rig" : "Save to Rigs"}</Button>
     </>}
   >
-    <form id={formId} className="tp-save-rig-dialog" onSubmit={submit}>
+    <form id={formId} className="tp-save-rig-dialog" aria-busy={busy} onSubmit={submit}>
       <div className="tp-save-rig-source">
         <span><Guitar size={19}/></span>
         <div><small>LIVE AUDITION CHAIN</small><strong>{toneTitle || "TonePilot audition"}</strong><p>The active model, Test Rig blocks and their current values will be stored together.</p></div>
@@ -225,6 +240,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
             required
             maxLength={200}
             value={name}
+            disabled={busy}
             aria-invalid={!sanitizedName || Boolean(duplicateName && !overwriteConfirmed)}
             aria-describedby={nameHelpId}
             onChange={(event) => updateName(event.target.value)}
@@ -235,13 +251,13 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
         {duplicateName && <div className="tp-save-rig-duplicate" role="alert">
           <AlertTriangle size={18}/>
           <div><strong>“{duplicateName}” already exists</strong><p>Saving with this name may replace that rig on the HeadRush. Choose another name or confirm the replacement explicitly.</p>
-            <label><input type="checkbox" checked={overwriteConfirmed} onChange={(event) => setOverwriteConfirmed(event.target.checked)}/><span>I understand — replace the existing rig</span></label>
+            <label><input type="checkbox" disabled={busy} checked={overwriteConfirmed} onChange={(event) => setOverwriteConfirmed(event.target.checked)}/><span>I understand — replace the existing rig</span></label>
           </div>
         </div>}
 
         <label className="tp-save-rig-field" htmlFor={`${formId}-setlist`}>
           <span>Add to setlist <em>Optional</em></span>
-          <Select id={`${formId}-setlist`} aria-label="Add to setlist" value={setlistId} onChange={(event) => { setSetlistId(event.target.value); setError(null); }}>
+          <Select id={`${formId}-setlist`} aria-label="Add to setlist" disabled={busy} value={setlistId} onChange={(event) => { setSetlistId(event.target.value); setError(null); }}>
             <option value="">None — save to Rigs only</option>
             {store.setlists.map((setlist) => <option key={setlist.id} value={setlist.id}>{setlist.name}</option>)}
           </Select>
@@ -256,6 +272,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
             key={item.value}
             type="button"
             role="radio"
+            disabled={busy}
             aria-checked={color === item.value}
             aria-label={item.label}
             tabIndex={color === item.value ? 0 : -1}
@@ -273,20 +290,20 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
           <fieldset className="tp-save-rig-tempo">
             <legend>Tempo source</legend>
             <div role="radiogroup" aria-label="Tempo source">
-              <button type="button" role="radio" aria-checked={tempoMode === "current"} tabIndex={tempoMode === "current" ? 0 : -1} className={tempoMode === "current" ? "selected" : ""} onKeyDown={moveRadioFocus} onClick={() => { setTempoMode("current"); setError(null); }}><span>Device tempo</span><small>Follow HeadRush master tempo</small></button>
-              <button type="button" role="radio" aria-checked={tempoMode === "fixed"} tabIndex={tempoMode === "fixed" ? 0 : -1} className={tempoMode === "fixed" ? "selected" : ""} onKeyDown={moveRadioFocus} onClick={() => { setTempoMode("fixed"); setError(null); }}><span>Fixed</span><small>Recall this BPM</small></button>
+              <button type="button" role="radio" disabled={busy} aria-checked={tempoMode === "current"} tabIndex={tempoMode === "current" ? 0 : -1} className={tempoMode === "current" ? "selected" : ""} onKeyDown={moveRadioFocus} onClick={() => { setTempoMode("current"); setError(null); }}><span>Device tempo</span><small>Follow HeadRush master tempo</small></button>
+              <button type="button" role="radio" disabled={busy} aria-checked={tempoMode === "fixed"} tabIndex={tempoMode === "fixed" ? 0 : -1} className={tempoMode === "fixed" ? "selected" : ""} onKeyDown={moveRadioFocus} onClick={() => { setTempoMode("fixed"); setError(null); }}><span>Fixed</span><small>Recall this BPM</small></button>
             </div>
           </fieldset>
 
           <label className="tp-save-rig-field tp-save-rig-bpm" htmlFor={`${formId}-tempo`}>
             <span>Rig tempo</span>
-            <div><Input id={`${formId}-tempo`} aria-label="Rig tempo" type="number" inputMode="decimal" min={MIN_TEMPO} max={MAX_TEMPO} step="0.1" disabled={tempoMode === "current"} value={tempoBpm} aria-invalid={fixedTempoInvalid} onChange={(event) => { setTempoBpm(event.target.value); setError(null); }}/><b>BPM</b></div>
+            <div><Input id={`${formId}-tempo`} aria-label="Rig tempo" type="number" inputMode="decimal" min={MIN_TEMPO} max={MAX_TEMPO} step="0.1" disabled={busy || tempoMode === "current"} value={tempoBpm} aria-invalid={fixedTempoInvalid} onChange={(event) => { setTempoBpm(event.target.value); setError(null); }}/><b>BPM</b></div>
             <small>{tempoMode === "current" ? "Follows the HeadRush master tempo when recalled." : `${MIN_TEMPO}–${MAX_TEMPO} BPM`}</small>
           </label>
 
           {programChangeSupported && <label className="tp-save-rig-field tp-save-rig-program" htmlFor={`${formId}-program`}>
             <span>MIDI Program Change</span>
-            <Select id={`${formId}-program`} aria-label="MIDI Program Change" value={programChange} onChange={(event) => { setProgramChange(Number(event.target.value)); setError(null); }}>
+            <Select id={`${formId}-program`} aria-label="MIDI Program Change" disabled={busy} value={programChange} onChange={(event) => { setProgramChange(Number(event.target.value)); setError(null); }}>
               <option value={-1}>Off — no assignment</option>
               {programChoices.map((program) => <option key={program} value={program}>Program {program + 1} · PC {program}{program === reflectedLoadedProgram ? " · Current" : ""}</option>)}
             </Select>
@@ -296,6 +313,7 @@ export function TonePilotSaveRigDialog({ open, onClose, onSaved, toneTitle }: To
       </section>
 
       {fixedTempoInvalid && <div className="tp-save-rig-error" role="alert"><AlertTriangle size={16}/><span>Enter a fixed tempo from {MIN_TEMPO} to {MAX_TEMPO} BPM.</span></div>}
+      {unavailable && <div className="tp-save-rig-error" role="alert"><AlertTriangle size={16}/><span>{unavailable}</span></div>}
       {error && <div className="tp-save-rig-error" role="alert"><AlertTriangle size={16}/><span>{error}</span></div>}
     </form>
   </Dialog>;

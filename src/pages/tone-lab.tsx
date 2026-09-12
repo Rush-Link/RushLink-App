@@ -70,7 +70,7 @@ export function ToneLabPage() {
   const [saveRigOpen, setSaveRigOpen] = useState(false); const [transportBusy, setTransportBusy] = useState<"stop" | "refresh" | null>(null);
   const [saveRigResult, setSaveRigResult] = useState<AuditionRigSaveResult | null>(null);
   const [saveNamTarget, setSaveNamTarget] = useState<{ tone: CloudTone; model: ToneModel } | null>(null);
-  const [saveNamResult, setSaveNamResult] = useState<{ name: string; path: string; requiresSync?: boolean } | null>(null);
+  const [saveNamResult, setSaveNamResult] = useState<{ name: string; path: string } | null>(null);
   const auditionButtonRef = useRef<HTMLButtonElement>(null); const refreshButtonRef = useRef<HTMLButtonElement>(null); const previousAuditionActive = useRef(false);
 
   const providerFilters = useMemo<Tone3000SearchFilters>(() => ({ architecture: architecture === "a1" || architecture === "custom" ? 1 : 2, calibrated: calibratedOnly, gear: tone3000GearsForCaptureTypes(selectedTypes, gears), sizes: architecture === "a1" || architecture === "custom" ? sizes : [], format: formats[0] ?? "", tags: tag.split(",").map((item) => item.trim()).filter(Boolean), makes: make.split(",").map((item) => item.trim()).filter(Boolean), creators: author.split(",").map((item) => item.trim()).filter(Boolean), verified: verifiedOnly, sortMode: sort === "newest" ? 1 : sort === "oldest" ? 2 : sort === "downloads-all-time" ? 3 : 0 }), [architecture, calibratedOnly, selectedTypes, gears, sizes, formats, tag, make, author, verifiedOnly, sort]);
@@ -133,7 +133,7 @@ export function ToneLabPage() {
         <span><strong>Saved “{saveRigResult.name}” to Rigs</strong><small>{saveRigResult.warning ?? (saveRigResult.setlistName ? `Also added to ${saveRigResult.setlistName}.` : "The live audition is still active.")}</small></span>
         <IconButton label="Dismiss save result" onClick={() => setSaveRigResult(null)}><X size={15}/></IconButton>
       </div>}
-      {saveNamResult && <div className="tp-save-rig-result tp-save-nam-result" role="status"><Check size={17}/><span><strong>{saveNamResult.requiresSync ? "Copied" : "Saved"} “{saveNamResult.name}” to the NAM library</strong><small>{saveNamResult.path}</small>{saveNamResult.requiresSync && <small>Eject the HeadRush drive, then tap Sync on the pedal to finish importing.</small>}</span><IconButton label="Dismiss NAM save result" onClick={() => setSaveNamResult(null)}><X size={15}/></IconButton></div>}
+      {saveNamResult && <div className="tp-save-rig-result tp-save-nam-result" role="status"><Check size={17}/><span><strong>Saved “{saveNamResult.name}” to the NAM library</strong><small>{saveNamResult.path}</small></span><IconButton label="Dismiss NAM save result" onClick={() => setSaveNamResult(null)}><X size={15}/></IconButton></div>}
       <div className="audition-actions" aria-label="Tone audition actions">
         {showNamOutput && captureBlock && namOutput && <section className="audition-nam-output" aria-label="Quick NAM output">
           <header><span><strong>NAM output</strong><small>Adjust the level leaving the auditioned model without opening Test Rig Studio.</small></span><Badge tone={store.auditioningToneId === selected.id ? "green" : "cyan"}>{store.auditioningToneId === selected.id ? "LIVE ON HEADRUSH" : "SAVED IN TEST RIG"}</Badge></header>

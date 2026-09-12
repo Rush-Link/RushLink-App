@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "RushLink: Run on tablet",
+      "type": "npm",
+      "script": "tablet",
+      "detail": "Build the emulator APK, start the tablet, install and launch RushLink.",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "RushLink: Build locally (Windows + Android)",
+      "type": "npm",
+      "script": "build:local",
+      "detail": "Run checks, build Windows installers and both Android APKs, and collect checksums.",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "RushLink: Build everything (local + Apple Actions)",
+      "type": "npm",
+      "script": "build:all",
+      "detail": "Build locally, send a private Mac build snapshot to GitHub Actions, and download verified DMGs. No release.",
+      "problemMatcher": ["$tsc"],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    {
+      "label": "RushLink: Build Mac previews (GitHub Actions)",
+      "type": "npm",
+      "script": "build:macos",
+      "detail": "Push a private build snapshot, wait for Apple Silicon and Intel builds, and download DMGs. No release.",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
+      "runOptions": { "instanceLimit": 1 }
+    },
+    { "label": "RushLink: Check setup", "type": "npm", "script": "doctor", "problemMatcher": [] },
+    { "label": "RushLink: Prepare Android tools", "type": "npm", "script": "android:setup", "problemMatcher": [] },
+    { "label": "RushLink: Stop tablet", "type": "npm", "script": "tablet:stop", "problemMatcher": [] },
+    { "label": "RushLink: Open build folder", "type": "npm", "script": "builds:open", "problemMatcher": [] }
+  ]
+}

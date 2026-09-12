@@ -1,8 +1,13 @@
-# Desktop release checklist
+# Build and release checklist
 
 RushLink installers contain compiled application assets only. The device-reference tree, local WebView profile, cached TonePilot results, rig history, favourites, diagnostics, test output and developer logs are not Tauri bundle resources.
 
-## Before building
+For everyday preview builds, use the [automated VS Code workflow](WORKFLOW.md).
+`npm run build:all` builds locally on Windows and uses GitHub Actions for Mac,
+collecting verified installers without publishing a release. Preview builds do
+not require a version change.
+
+## Before a release build
 
 1. Update the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
 2. Run `npm ci`.
@@ -14,10 +19,49 @@ RushLink installers contain compiled application assets only. The device-referen
 From a Developer PowerShell with Node.js, Rust, WebView2 and the Microsoft C++ desktop workload installed:
 
 ```powershell
-npm run build:desktop
+npm run build:windows
 ```
 
-Installers are written below `src-tauri/target/release/bundle/`. Test the installer and uninstall flow on a machine or Windows Sandbox that has never run RushLink; an existing development profile is never embedded in the installer but can make a local smoke test look pre-populated.
+Installers and checksums are collected in `release-artifacts/current-build/windows/`.
+The original Tauri output remains below `src-tauri/target/release/bundle/`. Test the installer and uninstall flow on a machine or Windows Sandbox that has never run RushLink; an existing development profile is never embedded in the installer but can make a local smoke test look pre-populated.
+
+## Local Android preview on Windows
+
+`tools/build-android.ps1` builds separate debug APKs for an x86-64 emulator and
+ARM64 tablets or phones. The Android project is in `src-tauri/gen/android`, with
+mobile window settings in `src-tauri/tauri.android.conf.json`. Desktop window
+settings are unchanged.
+
+The local build uses JDK 17, Android SDK platform 36, Build Tools 35.0.0 and
+36.0.0, NDK 28.2.13676358, and the Rust targets `x86_64-linux-android` and
+`aarch64-linux-android`. Its Gradle 8.14.3 wrapper checks the official distribution
+SHA-256. Android Studio's bundled Java 25 cannot run this wrapper; select JDK 17.
+
+On this prepared Windows workspace:
+
+```powershell
+npm run build:android
+```
+
+The script prefers the validated isolated SDK and JDK under `release-artifacts/build-tools`
+and prepares missing tools automatically. To select another installation directly,
+pass `-JavaHome`, `-AndroidHome` and, if needed, `-NdkHome`. It sets environment
+variables only for its process and restores them after the build. Tool downloads,
+caches, signing keys and generated native binaries are ignored by Git.
+
+The script automatically uses copying on Windows installations where Tauri cannot create
+symbolic links. Tauri still compiles each native library and embeds the frontend;
+the script copies those libraries and packages them with the generated Gradle
+project. It does not require Windows Developer Mode or administrator rights.
+`-CopyNativeLibraries` remains available as an explicit override. `-SkipFrontendBuild` is only
+for reusing a verified, current `dist/` build.
+
+Verified APKs and `SHA256SUMS.txt` are written to
+`release-artifacts/current-build/android/`. Use the `x86_64-emulator` APK for the
+PC tablet emulator and the `arm64-device` APK for most current Android tablets
+and phones. These APKs use a local debug signing key and are previews, not store
+releases. An emulator startup check does not verify live HeadRush discovery,
+Wi-Fi saving, audio, or MIDI on physical Android hardware.
 
 ## Linux preview builds
 
@@ -67,7 +111,7 @@ retained for 14 days.
 
 Preview builds use ad-hoc signing and need no Apple credentials. They are not
 notarized; successful packaging does not establish Gatekeeper acceptance or live
-HeadRush compatibility. Test installation, GUI startup, discovery and USB Transfer
+HeadRush compatibility. Test installation, GUI startup, discovery and Wi-Fi NAM saving
 on each Mac architecture before public distribution. Private macOS builds consume
 the organization's Actions allowance.
 

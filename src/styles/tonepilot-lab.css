@@ -328,6 +328,3 @@
 .tp-save-nam-destination p,.tp-save-nam-progress{margin:0;color:#8e9eae;font-size:12px;line-height:1.5}
 .tp-save-nam-volume{padding:11px 12px;border:1px solid var(--line);border-radius:9px;background:#0b121c}
 .tp-save-nam-result small{overflow-wrap:anywhere}
-.tp-save-nam-usb>strong{color:var(--cyan);font-size:13px}
-.tp-save-nam-usb p,.tp-save-nam-usb ol{margin:0;color:#9bafbf;font-size:12px;line-height:1.6;overflow-wrap:anywhere}
-.tp-save-nam-usb ol{padding-left:20px}

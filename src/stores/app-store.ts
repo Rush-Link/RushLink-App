@@ -14,6 +14,7 @@ import { canonicalLiveSwitchType, resolveLiveButtonGesture } from "../domain/sta
 import { equalDeviceValue, mergeReflectedTree } from "../services/reflected-tree-merge";
 import { buildTestRigDevicePlan, testRigBlockProperties, testRigModulePath, testRigPlanMismatches, type TestRigDevicePlan } from "../domain/tone-audition-chain";
 import { deviceErrorDetail, deviceErrorMessage } from "../services/device-errors";
+import { saveTone3000Source } from "../services/tone3000-save";
 
 interface Preferences {
   address: string;
@@ -42,7 +43,7 @@ function deviceFileMatches(actual: unknown, expected: unknown): boolean {
   if (typeof actual !== "string" || typeof expected !== "string" || !actual.trim() || !expected.trim()) return false;
   const normalizedActual = normalizedDeviceFile(actual);
   const normalizedExpected = normalizedDeviceFile(expected);
-  return normalizedActual === normalizedExpected || normalizedActual.endsWith(`/${normalizedExpected.split("/").at(-1)}`);
+  return normalizedActual === normalizedExpected || (!normalizedExpected.includes("/") && normalizedActual.endsWith(`/${normalizedExpected}`));
 }
 
 const missingPropertyForCapture = (property: TestRigCaptureFile["property"]) => property.endsWith("2") ? "FileMissing2" : "FileMissing";
@@ -109,19 +110,21 @@ async function waitForCloudCloneFile(folder: string, downloadName: string): Prom
 async function ensureDurableAuditionSource(
   audition: TonePilotAuditionIdentity,
   requestedRigName: string,
+  assertContext: () => void,
 ): Promise<TestRigCaptureFile | undefined> {
   if (audition.tone.source === "Tone3000") {
     if (!audition.model) throw new Error("The exact Tone3000 model used for this audition is no longer known. Restart the audition before saving.");
     if (!audition.captureFile) throw new Error("The active Tone3000 file is not attached to a verified Test Rig host. Refresh the Test Rig before saving.");
     const existingFiles = await deviceApi.listDeviceFiles(TONE3000_DEVICE_FOLDER, "nam");
+    assertContext();
     // A filename cannot prove model identity. Preserve previous downloads and
     // rigs by storing this exact audition under an available name every time.
     const downloadName = availableTone3000ModelName(audition.model, existingFiles);
-    const filename = tone3000ModelFilename(audition.model, downloadName);
-    await deviceApi.downloadTone(audition.tone, audition.model, downloadName);
+    const savedSource = await saveTone3000Source(audition.tone, audition.model, downloadName, assertContext);
+    assertContext();
     return bindAndVerifyDurableCapture(
       audition.captureFile,
-      `${TONE3000_DEVICE_FOLDER}/${filename}`,
+      savedSource.path,
       `Tone3000 model "${audition.model.name}"`,
     );
   }
@@ -129,6 +132,7 @@ async function ensureDurableAuditionSource(
   if (audition.tone.remoteKind !== "clone") {
     // The official HeadRush client exposes downloadRig as the durable operation
     // for a cloud rig. Its reflected return is validated by deviceApi.
+    assertContext();
     await deviceApi.downloadTone(audition.tone, undefined, requestedRigName);
     return audition.captureFile;
   }
@@ -139,9 +143,12 @@ async function ensureDurableAuditionSource(
   const cloneType = `${audition.tone.gear ?? ""} ${audition.tone.metadata?.clone_type ?? ""} ${audition.captureFile.path}`.toLocaleUpperCase();
   const folder = cloneType.includes("SUPERCLONE") ? "SuperClones/HeadRush Cloud" : "Amp Clones/HeadRush Cloud";
   const existingFiles = await deviceApi.listDeviceFiles(folder, "clone");
+  assertContext();
   const downloadName = availableCloudCloneName(requestedRigName, existingFiles);
   await deviceApi.downloadTone(audition.tone, undefined, downloadName);
+  assertContext();
   const durablePath = await waitForCloudCloneFile(folder, downloadName);
+  assertContext();
   return bindAndVerifyDurableCapture(audition.captureFile, durablePath, `HeadRush Cloud clone "${audition.tone.title}"`);
 }
 
@@ -889,9 +896,14 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
   const reflectedSubtree: HeadRushSubtree = { ...(subtree ?? {}) };
   for (const assignment of plan.assignments) {
     const path = testRigModulePath(assignment.moduleName);
-    if (!reflectedSubtree[path]) {
+    const hasSchema = () => Object.keys(reflectedSubtree[path]?.meta?.properties ?? {}).length > 0;
+    if (!hasSchema()) {
       try { Object.assign(reflectedSubtree, await deviceApi.subtree(path) as HeadRushSubtree); }
-      catch { /* On remains safe even when an older firmware omits module metadata. */ }
+      catch { /* Fail below when editable settings cannot be mapped safely. */ }
+    }
+    if (!hasSchema() && assignment.block.parameters.some((parameter) => parameter.writable !== false
+      && !(assignment.capture && isProtectedCaptureFileParameter(parameter)))) {
+      throw new Error(`HeadRush did not expose the settings for ${assignment.block.name}. Refresh the device before saving or auditioning this Test Rig.`);
     }
     const properties = {
       ...testRigBlockProperties(assignment.block, reflectedSubtree[path], assignment.enabled),
@@ -904,8 +916,20 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     if (assignment.capture && captureFile) fileProperties.push(captureFile.property);
     const emptyFile = fileProperties.find((property) => typeof properties[property] !== "string" || !String(properties[property]).trim());
     if (emptyFile) throw new Error(`${assignment.block.name} has no file selected. Choose a compatible device file in Test Rig Studio before auditioning.`);
-    const matches = (actual: Record<string, unknown>) => actual.On === assignment.enabled
-      && fileProperties.every((property) => deviceFileMatches(actual[property], properties[property]));
+    const fileMatches = (actual: Record<string, unknown>, property: string) => {
+      const marker = property.endsWith("2") ? "FileMissing2" : "FileMissing";
+      const missing = actual[marker];
+      const markerReflected = marker in (reflectedSubtree[path]?.meta?.properties ?? {});
+      const fileReady = missing === "" || missing === false || (!markerReflected && missing === undefined);
+      return deviceFileMatches(actual[property], properties[property]) && fileReady;
+    };
+    const parameterMatches = (actual: unknown, expected: unknown) => equalDeviceValue(actual, expected)
+      || (typeof actual === "number" && typeof expected === "number" && Number.isFinite(actual) && Number.isFinite(expected)
+        && Math.abs(actual - expected) <= 1e-6);
+    const mismatchedProperties = (actual: Record<string, unknown>) => Object.keys(properties)
+      .filter((property) => fileProperties.includes(property)
+        ? !fileMatches(actual, property)
+        : !parameterMatches(actual[property], properties[property]));
     const response = await deviceApi.setProperties(path, properties);
     assertDeviceMutation(response.status, `Configuring ${assignment.block.name}`);
 
@@ -917,14 +941,14 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     for (let attempt = 0; attempt < AUDITION_SETTLE_DELAYS.length; attempt++) {
       await auditionDelay(attempt === 0 ? 45 : AUDITION_SETTLE_DELAYS[attempt]);
       actual = await deviceApi.properties(path);
-      if (matches(actual)) break;
+      if (!mismatchedProperties(actual).length) break;
       if (attempt === 0) {
         const retry = await deviceApi.setProperties(path, properties);
         assertDeviceMutation(retry.status, `Reconfiguring ${assignment.block.name}`);
       }
     }
     if (actual.On !== assignment.enabled) throw new Error(`${assignment.block.name} is present, but Flex Prime did not ${assignment.enabled ? "enable" : "bypass"} it in the audio chain.`);
-    const missingFile = fileProperties.find((property) => !deviceFileMatches(actual[property], properties[property]));
+    const missingFile = fileProperties.find((property) => !fileMatches(actual, property));
     if (missingFile) {
       const requested = String(properties[missingFile] ?? "").trim();
       const label = requested.split(/[\\/]/).filter(Boolean).at(-1);
@@ -933,6 +957,10 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
       throw new Error(label
         ? `${assignment.block.name} is present, but HeadRush did not finish loading "${label}".${reason}`
         : `${assignment.block.name} is present, but no valid device file was selected.`);
+    }
+    const mismatches = mismatchedProperties(actual);
+    if (mismatches.length) {
+      throw new Error(`HeadRush did not keep the requested ${mismatches.join(", ")} settings for ${assignment.block.name}. The complete Test Rig could not be verified.`);
     }
   }
 }
@@ -2374,12 +2402,35 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   },
   saveAuditionRig: async (options) => {
     const state = get();
-    if (!deviceApi.isNative() || !state.device) throw new Error("Connect a HeadRush device before saving this audition.");
+    if (!deviceApi.isNative() || !state.device || state.device.status !== "ready") throw new Error("Connect a HeadRush device over Wi-Fi and wait until it is ready before saving this audition.");
+    if (state.auditionBusy) throw new Error("Another audition operation is in progress. Wait for it to finish before saving.");
     if (!state.auditioningToneId) throw new Error("Start an audition before saving its Test Rig.");
     const activeAudition = state.testRigReturn?.audition;
     if (!activeAudition || activeAudition.tone.id !== state.auditioningToneId) {
       throw new Error("RushLink cannot prove which provider item and file created this audition. Restart the audition before saving.");
     }
+
+    // Capture the requested operation before the first await. Catalogue selection
+    // may change independently; the active provider model and device may not.
+    options = { ...options };
+    const auditionKey = (audition: TonePilotAuditionIdentity | undefined) => JSON.stringify(audition ? [
+      audition.tone.id, audition.tone.source, audition.tone.remoteId, audition.tone.remoteKind,
+      audition.model?.id, audition.model?.remoteId, audition.model?.url,
+    ] : null);
+    const expectedAudition = auditionKey(activeAudition);
+    const sameSession = () => {
+      const current = get();
+      return current.device?.id === state.device!.id && current.device?.host === state.device!.host
+        && current.auditioningToneId === activeAudition.tone.id
+        && auditionKey(current.testRigReturn?.audition) === expectedAudition;
+    };
+    const assertSaveContext = () => {
+      const current = get();
+      if (!sameSession() || current.device?.status !== "ready"
+        || current.selectedTestRigId !== state.selectedTestRigId || current.captureOverride !== state.captureOverride) {
+        throw new Error("The active audition, Test Rig or Wi-Fi connection changed while saving was being prepared. The rig was not saved; try again on the current audition.");
+      }
+    };
 
     const name = sanitizeHeadRushRigName(options.name);
     if (!name) throw new Error("Enter a rig name.");
@@ -2402,11 +2453,16 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
 
     try {
       const rigsBefore = await deviceApi.properties("/Evil/API/Rigs");
+      assertSaveContext();
       originalRigOptions = rigsBefore;
-      const storedNames = Array.isArray(rigsBefore.AllRigNames) ? rigsBefore.AllRigNames.map(String) : state.rigs.map((rig) => rig.name);
+      if (!Array.isArray(rigsBefore.AllRigNames) || !rigsBefore.AllRigNames.every((entry) => typeof entry === "string" && entry.trim())) {
+        throw new Error("RushLink could not read the current rig names from HeadRush. Nothing was saved; reconnect and try again.");
+      }
+      const storedNames = rigsBefore.AllRigNames.map((entry: string) => entry.trim());
       const existingName = storedNames.find((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
       if (existingName && !options.overwrite) throw new AuditionRigNameConflictError(existingName);
       if (!existingName && !(await deviceApi.canSaveNewRig())) throw new Error("The HeadRush rig library cannot accept another rig. Remove an unused rig or choose an existing name to replace.");
+      assertSaveContext();
 
       const rawAvailablePrograms = rigsBefore.availableProgMIDICC;
       const programChangeSupported = Array.isArray(rawAvailablePrograms);
@@ -2421,16 +2477,13 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       }
 
       await flushActiveTestRigSync(get);
+      assertSaveContext();
       const syncedState = get();
       const syncedAudition = syncedState.testRigReturn?.audition;
-      if (!syncedAudition || syncedAudition.tone.id !== syncedState.auditioningToneId || syncedAudition.tone.id !== activeAudition.tone.id) {
-        throw new Error("The active audition changed while its Test Rig was being prepared. Nothing was saved; try again on the current tone.");
-      }
+      if (!syncedAudition) throw new Error("The active audition is no longer available. Restart it before saving.");
 
-      const durableCapture = await ensureDurableAuditionSource(syncedAudition, name);
-      if (get().auditioningToneId !== syncedAudition.tone.id) {
-        throw new Error("The active audition changed while its source was being prepared. Nothing was saved; try again on the current tone.");
-      }
+      const durableCapture = await ensureDurableAuditionSource(syncedAudition, name, assertSaveContext);
+      assertSaveContext();
       if (durableCapture) {
         set((latest) => ({
           testRigReturn: latest.testRigReturn?.audition?.tone.id === syncedAudition.tone.id
@@ -2442,56 +2495,104 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         }));
       }
 
+      // Loading the permanent NAM can reset host parameters. Reapply and verify
+      // the complete chain with its permanent source before persisting the rig.
+      await flushActiveTestRigSync(get);
+      assertSaveContext();
+      const verifiedRig = JSON.stringify(get().testRigs.find((rig) => rig.id === state.selectedTestRigId));
+      const assertVerifiedRig = () => {
+        assertSaveContext();
+        if (JSON.stringify(get().testRigs.find((rig) => rig.id === state.selectedTestRigId)) !== verifiedRig
+          || testRigSyncTimer || testRigSyncPromise || testRigSyncQueued) {
+          throw new Error("The Test Rig changed after its settings were verified. The rig was not saved; let the last edit finish and try again.");
+        }
+      };
+
       originalPatchRig = await deviceApi.properties("/Evil/Engine/Patch/Rig");
-      const rigOptionsResponse = await deviceApi.setProperties("/Evil/API/Rigs", {
+      assertVerifiedRig();
+      const expectedRigOptions = {
         loadedColor: color,
         ...(programChangeSupported ? { loadedProgMIDICC: programChange } : {}),
-      });
+      };
+      const rigOptionsResponse = await deviceApi.setProperties("/Evil/API/Rigs", expectedRigOptions);
       assertDeviceMutation(rigOptionsResponse.status, "Updating rig library options");
       metadataChanged = true;
-      const tempoResponse = await deviceApi.setProperties("/Evil/Engine/Patch/Rig", {
+      assertVerifiedRig();
+      const expectedTempo = {
         TempoFromMaster: options.tempoMode === "current",
         ...(options.tempoMode === "fixed" ? { Tempo: (tempoBpm - 30) / 210 } : {}),
-      });
+      };
+      const tempoResponse = await deviceApi.setProperties("/Evil/Engine/Patch/Rig", expectedTempo);
       assertDeviceMutation(tempoResponse.status, "Updating rig tempo");
+      assertVerifiedRig();
+      const settingsMatch = (actual: Record<string, unknown>, expected: Record<string, unknown>) => Object.entries(expected).every(([key, value]) =>
+        equalDeviceValue(actual[key], value) || (typeof actual[key] === "number" && typeof value === "number" && Math.abs(actual[key] - value) <= 1e-6));
+      let settingsVerified = false;
+      for (const delay of [0, 80, 160, 280]) {
+        await auditionDelay(delay);
+        assertVerifiedRig();
+        const [rigOptions, patchRig] = await Promise.all([
+          deviceApi.properties("/Evil/API/Rigs"),
+          deviceApi.properties("/Evil/Engine/Patch/Rig"),
+        ]);
+        assertVerifiedRig();
+        if (settingsMatch(rigOptions, expectedRigOptions) && settingsMatch(patchRig, expectedTempo)) {
+          settingsVerified = true;
+          break;
+        }
+      }
+      if (!settingsVerified) throw new Error("HeadRush did not keep the requested rig colour, MIDI assignment or tempo. The rig was not saved; try again after the device finishes syncing.");
       await deviceApi.saveRigAs(name);
       rigSaved = true;
+
+      const assertSavedContext = () => {
+        if (!sameSession() || get().device?.status !== "ready") {
+          throw new Error(`HeadRush accepted the save of “${name}”, but the active audition or Wi-Fi connection changed before confirmation. Check Rigs on the original device before trying again.`);
+        }
+      };
 
       let savedRigId = "";
       let rigIdentityError: unknown;
       for (const delay of [0, 80, 160, 280]) {
         await auditionDelay(delay);
+        assertSavedContext();
         try {
           const rigsAfter = await deviceApi.properties("/Evil/API/Rigs");
+          assertSavedContext();
           const loadedName = typeof rigsAfter.loadedName === "string" ? rigsAfter.loadedName.trim() : "";
           const loadedId = typeof rigsAfter.loadedID === "string" ? rigsAfter.loadedID.trim() : "";
-          if (loadedId && loadedName.toLocaleLowerCase() === name.toLocaleLowerCase()) savedRigId = loadedId;
-          const names = Array.isArray(rigsAfter.AllRigNames) ? rigsAfter.AllRigNames.map(String) : [];
-          const ids = Array.isArray(rigsAfter.AllRigIds) ? rigsAfter.AllRigIds.map(String) : [];
-          const savedIndex = names.findIndex((candidate) => candidate.toLocaleLowerCase() === name.toLocaleLowerCase());
-          if (!savedRigId && savedIndex >= 0) savedRigId = ids[savedIndex] ?? "";
+          const previousIds = new Set([
+            ...(Array.isArray(rigsBefore.AllRigIds) ? rigsBefore.AllRigIds : []), rigsBefore.loadedID,
+          ].filter((value): value is string => typeof value === "string" && Boolean(value.trim())).map((value) => value.trim()));
+          const validSavedId = (value: unknown): value is string => typeof value === "string" && Boolean(value.trim())
+            && (Boolean(existingName) || !previousIds.has(value.trim()));
+          const names = Array.isArray(rigsAfter.AllRigNames) ? rigsAfter.AllRigNames : [];
+          const ids = Array.isArray(rigsAfter.AllRigIds) ? rigsAfter.AllRigIds : [];
+          const savedIndex = names.findIndex((candidate) => typeof candidate === "string" && candidate.trim().toLocaleLowerCase() === name.toLocaleLowerCase());
+          if (names.length === ids.length && savedIndex >= 0 && validSavedId(ids[savedIndex])) savedRigId = ids[savedIndex].trim();
+          if (!savedRigId && validSavedId(loadedId) && loadedName.toLocaleLowerCase() === name.toLocaleLowerCase()) savedRigId = loadedId;
           if (savedRigId) break;
         } catch (error) {
           rigIdentityError = error;
         }
       }
-      if (!savedRigId && rigIdentityError) get().addDiagnostic({ level: "warning", source: "TonePilot", message: `${name} was saved, but its new device ID could not be read`, detail: deviceErrorDetail(rigIdentityError) });
+      if (!savedRigId) {
+        throw new Error(`HeadRush accepted the save of “${name}”, but RushLink could not confirm the saved rig in its library. Check Rigs on the device before trying again.`, { cause: rigIdentityError });
+      }
 
       let warning: string | undefined;
       let savedSetlistName: string | undefined;
       if (setlist) {
-        if (!savedRigId) {
-          warning = `“${name}” was saved to Rigs, but RushLink could not identify it for ${setlist.name}.`;
-        } else {
-          try {
-            const detail = await deviceApi.getSetlist(setlist.id);
-            const payload = appendRigToHeadRushSetlist(detail, setlist.id, setlist.name, savedRigId, name);
-            await deviceApi.saveSetlistDocument(payload);
-            savedSetlistName = payload.name;
-          } catch (error) {
-            warning = `“${name}” was saved to Rigs, but it could not be added to ${setlist.name}.`;
-            get().addDiagnostic({ level: "warning", source: "TonePilot", message: warning, detail: deviceErrorDetail(error) });
-          }
+        try {
+          assertSavedContext();
+          const detail = await deviceApi.getSetlist(setlist.id);
+          assertSavedContext();
+          const payload = appendRigToHeadRushSetlist(detail, setlist.id, setlist.name, savedRigId, name);
+          await deviceApi.saveSetlistDocument(payload);
+          savedSetlistName = payload.name;
+        } catch (error) {
+          warning = `“${name}” was saved to Rigs, but it could not be added to ${setlist.name}.`;
+          get().addDiagnostic({ level: "warning", source: "TonePilot", message: warning, detail: deviceErrorDetail(error) });
         }
       }
 
@@ -2511,7 +2612,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       });
       return { rigId: savedRigId, name, setlistName: savedSetlistName, warning };
     } catch (error) {
-      if (metadataChanged && !rigSaved && originalRigOptions && originalPatchRig) {
+      if (metadataChanged && !rigSaved && sameSession() && get().device?.status === "ready" && originalRigOptions && originalPatchRig) {
         try {
           const rigRollback: Record<string, unknown> = {};
           if (typeof originalRigOptions.loadedColor === "number") rigRollback.loadedColor = originalRigOptions.loadedColor;
@@ -2527,6 +2628,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           if (typeof originalPatchRig.TempoFromMaster === "boolean") tempoRollback.TempoFromMaster = originalPatchRig.TempoFromMaster;
           if (typeof originalPatchRig.Tempo === "number") tempoRollback.Tempo = originalPatchRig.Tempo;
           if (Object.keys(tempoRollback).length) {
+            if (!sameSession() || get().device?.status !== "ready") throw new Error("The device or audition changed; remaining rig settings could not be restored.");
             const response = await deviceApi.setProperties("/Evil/Engine/Patch/Rig", tempoRollback);
             assertDeviceMutation(response.status, "Restoring rig tempo");
           }
@@ -2535,7 +2637,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         }
       }
       set({ auditionBusy: false });
-      get().addDiagnostic({ level: "error", source: "TonePilot", message: "Could not save the auditioned rig", detail: deviceErrorDetail(error) });
+      get().addDiagnostic({ level: "error", source: "TonePilot", message: rigSaved ? "Could not confirm the saved audition rig" : "Could not save the auditioned rig", detail: deviceErrorDetail(error) });
       throw error;
     }
   },

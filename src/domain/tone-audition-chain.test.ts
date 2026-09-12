@@ -122,6 +122,17 @@ describe("TonePilot temporary Test Rig planning", () => {
     expect(plan.message).toMatch(/complete temporary signal chain/i);
   });
 
+  it("applies a capture-only rig so its NAM output and exact slot are still configured", () => {
+    const capture = structuredClone(testRigTemplates[0].blocks.find((block) => block.name === "Capture slot")!);
+    capture.parameters.find((parameter) => parameter.id === "Output")!.value = 8;
+    const plan = buildTestRigDevicePlan({
+      blocks: [capture], captureType: "amp", source: "Tone3000", moduleTypes,
+      currentModuleTypeIds: [0, 0, 0, 0, 19, 9],
+    });
+    expect(plan).toMatchObject({ applied: true, complete: true, captureSlot: 6, clearSlots: [4, 5] });
+    expect(plan.assignments).toMatchObject([{ capture: true, slot: 6, block: capture }]);
+  });
+
   it("uses the reflected IR host for an IR-only audition", () => {
     const plan = buildTestRigDevicePlan({
       blocks: testRigTemplates[0].blocks,
