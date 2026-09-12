@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Build, install and open RushLink in its own persistent Android tablet.
+Build, install and open RushLink in its own persistent Android emulator.
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File tools/run-android.ps1
 .EXAMPLE
@@ -12,6 +12,7 @@ powershell -ExecutionPolicy Bypass -File tools/run-android.ps1 -Stop
 #>
 [CmdletBinding()]
 param(
+  [ValidateSet('tablet', 'phone')][string]$Profile = 'tablet',
   [switch]$Check,
   [switch]$Json,
   [switch]$Stop,
@@ -37,7 +38,7 @@ if (($Check -or $Stop) -and ($SkipBuild -or $Headless -or $SmokeTest -or $Accept
 $repoRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'lib/android-tools.ps1')
 . (Join-Path $PSScriptRoot 'lib/android-runtime.ps1')
-$runtime = Get-RushLinkAndroidRuntime $repoRoot
+$runtime = Get-RushLinkAndroidRuntime $repoRoot -Profile $Profile
 $selection = @{ JavaHome=$JavaHome; AndroidHome=$AndroidHome; NdkHome=$NdkHome; Target='emulator'; Tablet=$true }
 $session = Read-RushLinkRuntimeSession $runtime
 $version = (Get-Content -LiteralPath (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
@@ -63,7 +64,7 @@ if ($Check) {
   if ($Json) { $status | ConvertTo-Json -Depth 6 }
   else {
     $status | Format-List
-    if ($status.Ready) { Write-Host 'Ready. Run tools/run-android.ps1 to build and open the tablet.' }
+    if ($status.Ready) { Write-Host 'Ready. Run tools/run-android.ps1 to build and open the emulator.' }
     else { Write-Host 'Run tools/run-android.ps1 to install missing tools, or resolve the reported prerequisite.' }
   }
   if (-not $status.Ready) { exit 1 }
@@ -72,12 +73,12 @@ if ($Check) {
 
 if ($Stop -and -not (Test-Path -LiteralPath $runtime.Root)) {
   Assert-RushLinkRuntimeOwnership $runtime $session
-  Write-Host 'No RushLink tablet session is running.'
+  Write-Host 'No RushLink emulator session is running.'
   exit 0
 }
 New-Item -ItemType Directory -Force -Path $runtime.Root | Out-Null
 try { $workflowLock = [IO.File]::Open($runtime.LockPath, 'OpenOrCreate', 'ReadWrite', 'None') }
-catch { throw 'Another RushLink tablet command is running. Let it finish before starting or stopping the tablet.' }
+catch { throw 'Another RushLink emulator command is running. Let it finish before starting or stopping the emulator.' }
 $previousEnvironment = @{}
 $logRoot = $null
 $succeeded = $false
@@ -99,25 +100,25 @@ try {
   $toolchain = Install-RushLinkAndroidToolchain @selection -AcceptLicenses:$AcceptLicenses
   $nodePath = (Get-Command node.exe -ErrorAction Stop).Source
   $nodeCheck = Invoke-RushLinkRuntimeCommand $nodePath @('-p', 'typeof WebSocket === "function"')
-  if ($nodeCheck.Output.Trim() -ne 'true') { throw 'The tablet launcher requires Node.js 22 or newer.' }
+  if ($nodeCheck.Output.Trim() -ne 'true') { throw 'The emulator launcher requires Node.js 22 or newer.' }
   $acceleration = Invoke-RushLinkRuntimeCommand $toolchain.EmulatorPath @('-accel-check') -AllowFailure
   if ($acceleration.ExitCode -ne 0) {
-    throw "Android emulator acceleration is unavailable: $($acceleration.Output) $($acceleration.Error). Enable a supported Windows hypervisor manually before running the tablet."
+    throw "Android emulator acceleration is unavailable: $($acceleration.Output) $($acceleration.Error). Enable a supported Windows hypervisor manually before running the emulator."
   }
-  $logRoot = Join-Path $repoRoot ("release-artifacts/current-build/android/tablet/" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+  $logRoot = Join-Path $repoRoot ("release-artifacts/current-build/android/$Profile/" + (Get-Date -Format 'yyyyMMdd-HHmmss'))
   New-Item -ItemType Directory -Force -Path $logRoot,$runtime.UserHome,$runtime.AvdHome | Out-Null
-  Write-Host "Tablet logs and screenshots: $logRoot"
+  Write-Host "Emulator logs and screenshots: $logRoot"
   if (-not $SkipBuild) {
-    Write-Host 'Building the current RushLink code for the x86_64 tablet.'
+    Write-Host 'Building the current RushLink code for the x86_64 emulator.'
     & (Join-Path $PSScriptRoot 'build-android.ps1') -Target emulator -JavaHome $toolchain.JavaHome -AndroidHome $toolchain.AndroidHome -NdkHome $toolchain.NdkHome -AcceptLicenses:$AcceptLicenses
-  } else { Write-Host 'Using the existing tablet APK (-SkipBuild).' }
-  if (-not (Test-Path -LiteralPath $apkPath)) { throw "The tablet APK is missing: $apkPath. Run without -SkipBuild first." }
+  } else { Write-Host 'Using the existing emulator APK (-SkipBuild).' }
+  if (-not (Test-Path -LiteralPath $apkPath)) { throw "The emulator APK is missing: $apkPath. Run without -SkipBuild first." }
   $apkHash = (Get-FileHash -LiteralPath $apkPath -Algorithm SHA256).Hash.ToLowerInvariant()
   $packageInfo = Invoke-RushLinkRuntimeCommand (Join-Path $toolchain.AndroidHome 'build-tools/36.0.0/aapt2.exe') @('dump','badging',$apkPath)
   if ($packageInfo.Output -notmatch "(?m)^package: name='app\.rushlink\.android' " -or
       $packageInfo.Output -notmatch ("(?m)^package: .*versionName='" + [regex]::Escape($version) + "'") -or
       $packageInfo.Output -notmatch "(?m)^native-code: 'x86_64'\s*$") {
-    throw 'The staged APK is not the RushLink x86_64 tablet build. Build again without -SkipBuild.'
+    throw 'The staged APK is not the RushLink x86_64 emulator build. Build again without -SkipBuild.'
   }
   $environment = @{
     JAVA_HOME=$toolchain.JavaHome; ANDROID_HOME=$toolchain.AndroidHome; ANDROID_SDK_ROOT=$toolchain.AndroidHome
@@ -135,7 +136,7 @@ try {
   }
   Ensure-RushLinkTabletAvd $runtime $toolchain $logRoot
   if (-not ($Headless -or $SmokeTest) -and $session.Headless -and (Test-RushLinkProcessIdentity $session.Emulator)) {
-    Write-Host 'Reopening the previously headless RushLink tablet in a visible window.'
+    Write-Host 'Reopening the previously headless RushLink emulator in a visible window.'
     Stop-RushLinkTabletSession $runtime $session $toolchain.AdbPath -KeepAdb
     $keptEmulator = $false
   }
@@ -155,7 +156,7 @@ try {
   Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('forward','--remove',"tcp:$($runtime.DebugPort)") -AllowFailure | Out-Null
   Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('forward','--no-rebind',"tcp:$($runtime.DebugPort)","localabstract:webview_devtools_remote_$appId") | Out-Null
   Write-Host 'Waiting for the RushLink screen to finish loading.'
-  $webview = Invoke-RushLinkRuntimeCommand $nodePath @((Join-Path $PSScriptRoot 'lib/android-webview.mjs'),$logRoot,'120') -TimeoutSeconds 160 -LogPath (Join-Path $logRoot 'webview.log') -AllowFailure
+  $webview = Invoke-RushLinkRuntimeCommand $nodePath @((Join-Path $PSScriptRoot 'lib/android-webview.mjs'),$logRoot,'120',[string]$runtime.DebugPort,$Profile) -TimeoutSeconds 160 -LogPath (Join-Path $logRoot 'webview.log') -AllowFailure
   Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('logcat','-d','-t','2000') -LogPath (Join-Path $logRoot 'startup-logcat.txt') | Out-Null
   if ($webview.ExitCode -ne 0) { throw "RushLink screen verification failed. $($webview.Error) See $logRoot" }
   Write-Host $webview.Output
@@ -166,28 +167,28 @@ try {
     if ($window.Output -match 'mCurrentFocus=Window\{[^\r\n]*app\.rushlink\.android/') { $foreground=$true; break }
     Start-Sleep -Seconds 2
   }
-  Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('shell','screencap','-p','/sdcard/rushlink-tablet.png') -TimeoutSeconds 45 | Out-Null
-  Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('pull','/sdcard/rushlink-tablet.png',(Join-Path $logRoot 'tablet.png')) -TimeoutSeconds 45 | Out-Null
-  if (-not $foreground) { throw "RushLink loaded, but Android has another window in front. See tablet.png in $logRoot. Open the tablet normally to dismiss it." }
+  Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('shell','screencap','-p',"/sdcard/rushlink-$Profile.png") -TimeoutSeconds 45 | Out-Null
+  Invoke-RushLinkTabletAdb $runtime $toolchain.AdbPath @('pull',"/sdcard/rushlink-$Profile.png",(Join-Path $logRoot "$Profile.png")) -TimeoutSeconds 45 | Out-Null
+  if (-not $foreground) { throw "RushLink loaded, but Android has another window in front. See $Profile.png in $logRoot. Open the emulator normally to dismiss it." }
   $fatal = Select-String -LiteralPath (Join-Path $logRoot 'startup-logcat.txt') -Pattern "FATAL EXCEPTION.*|Fatal signal.*(?:$appId|rushlink)|JNI DETECTED ERROR|thread '.*' panicked" |
     Where-Object { $_.Line -match "\s$appId\s" }
   if ($fatal) { throw "RushLink reported a fatal runtime error. See startup-logcat.txt in $logRoot." }
   $result = [pscustomobject]@{
-    Passed=$true; CheckedAtUtc=[DateTime]::UtcNow.ToString('o'); Package=$runtime.Package; AppPid=$appId
+    Passed=$true; Profile=$Profile; CheckedAtUtc=[DateTime]::UtcNow.ToString('o'); Package=$runtime.Package; AppPid=$appId
     Apk=$apkPath; Sha256=$apkHash; Avd=$runtime.AvdName; Serial=$runtime.Serial
     Headless=[bool]$session.Headless; WebViewReady=$true; Foreground=$foreground
-    Screenshot=(Join-Path $logRoot 'tablet.png'); Artifacts=$logRoot
+    Screenshot=(Join-Path $logRoot "$Profile.png"); Artifacts=$logRoot
   }
   $resultJson = $result | ConvertTo-Json -Depth 6
   [IO.File]::WriteAllText((Join-Path $logRoot 'result.json'),$resultJson,[Text.UTF8Encoding]::new($false))
   [IO.File]::WriteAllText((Join-Path (Split-Path -Parent $logRoot) 'latest.json'),$resultJson,[Text.UTF8Encoding]::new($false))
   $succeeded=$true
-  if ($SmokeTest) { Write-Host 'Tablet smoke test passed.' }
+  if ($SmokeTest) { Write-Host 'Emulator smoke test passed.' }
   else { Write-Host 'RushLink is open. Run the same command after edits; use -Stop when finished.' }
 } catch {
   if ($logRoot) {
     [IO.File]::WriteAllText((Join-Path $logRoot 'failure.txt'),($_ | Out-String),[Text.UTF8Encoding]::new($false))
-    Write-Host "Tablet startup failed. Evidence: $logRoot"
+    Write-Host "Emulator startup failed. Evidence: $logRoot"
   }
   throw
 } finally {

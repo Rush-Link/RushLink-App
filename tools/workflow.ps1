@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-  [ValidateSet('check', 'local', 'windows', 'android', 'tablet', 'stop-tablet', 'setup-android', 'macos', 'all', 'open')]
+  [ValidateSet('check', 'local', 'windows', 'android', 'tablet', 'phone', 'stop-tablet', 'stop-phone', 'setup-android', 'macos', 'all', 'open')]
   [string]$Action = 'local',
   [switch]$SkipTests,
   [switch]$IncludeMacos,
@@ -59,7 +59,7 @@ function Build-Local {
 Push-Location $repoRoot
 try {
   if ($env:OS -ne 'Windows_NT') { throw 'These local workflow commands run on Windows. Apple builds use GitHub Actions.' }
-  if ($Action -in @('local', 'windows', 'android', 'tablet', 'all', 'setup-android')) {
+  if ($Action -in @('local', 'windows', 'android', 'tablet', 'phone', 'all', 'setup-android')) {
     $hashProvider = [Security.Cryptography.SHA256]::Create()
     try { $workspaceHash = [BitConverter]::ToString($hashProvider.ComputeHash([Text.Encoding]::UTF8.GetBytes($repoRoot.ToLowerInvariant()))).Replace('-', '').Substring(0, 20) }
     finally { $hashProvider.Dispose() }
@@ -98,15 +98,16 @@ try {
       Invoke-WorkflowScript 'build-windows.ps1'
     }
     'android' { Ensure-Dependencies; Invoke-WorkflowScript 'build-android.ps1' @('-Target', $Target) }
-    'tablet' {
+    { $_ -in 'tablet', 'phone' } {
       Ensure-Dependencies
-      $tabletArguments = @()
-      if ($Headless) { $tabletArguments += '-Headless' }
-      if ($SmokeTest) { $tabletArguments += '-SmokeTest' }
-      if ($SkipBuild) { $tabletArguments += '-SkipBuild' }
-      Invoke-WorkflowScript 'run-android.ps1' $tabletArguments
+      $emulatorArguments = @('-Profile', $Action)
+      if ($Headless) { $emulatorArguments += '-Headless' }
+      if ($SmokeTest) { $emulatorArguments += '-SmokeTest' }
+      if ($SkipBuild) { $emulatorArguments += '-SkipBuild' }
+      Invoke-WorkflowScript 'run-android.ps1' $emulatorArguments
     }
     'stop-tablet' { Invoke-WorkflowScript 'run-android.ps1' @('-Stop') }
+    'stop-phone' { Invoke-WorkflowScript 'run-android.ps1' @('-Profile', 'phone', '-Stop') }
     'setup-android' {
       $setupArguments = @()
       if ($AcceptLicenses) { $setupArguments += '-AcceptLicenses' }
@@ -118,7 +119,7 @@ try {
       Start-Process -FilePath 'explorer.exe' -ArgumentList @((Join-Path $repoRoot 'release-artifacts/current-build')) | Out-Null
     }
   }
-  if ($Action -in @('local', 'windows', 'android', 'tablet', 'all', 'macos')) {
+  if ($Action -in @('local', 'windows', 'android', 'tablet', 'phone', 'all', 'macos')) {
     Invoke-WorkflowCommand 'node.exe' @((Join-Path $PSScriptRoot 'workflow-artifacts.mjs'), 'index')
     Write-Host 'Done. npm run builds:open opens the installers. No release was published.'
   }

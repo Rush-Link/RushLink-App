@@ -2,11 +2,13 @@
 import { writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-const [directory, timeoutArgument = '120'] = process.argv.slice(2);
+const [directory, timeoutArgument = '120', portArgument = '9348', profile] = process.argv.slice(2);
+if (!Number.isInteger(Number(portArgument)) || Number(portArgument) < 1024 || Number(portArgument) > 65535) throw new Error('Invalid local debug port.');
 if (!directory || !Number.isFinite(Number(timeoutArgument)) || Number(timeoutArgument) < 1) {
-  throw new Error('Usage: node tools/lib/android-webview.mjs <artifact-directory> [timeout-seconds]');
+  throw new Error('Usage: node tools/lib/android-webview.mjs <artifact-directory> [timeout-seconds] [debug-port]');
 }
 if (typeof WebSocket !== 'function') throw new Error('The Android launcher requires Node.js 22 or newer.');
+if (profile && !['phone', 'tablet'].includes(profile)) throw new Error('Invalid emulator profile.');
 const output = resolve(directory);
 const deadline = Date.now() + Number(timeoutArgument) * 1000;
 const pause = (milliseconds) => new Promise((resolvePause) => setTimeout(resolvePause, milliseconds));
@@ -29,7 +31,7 @@ try {
   let target;
   while (Date.now() < deadline) {
     try {
-      const response = await fetch('http://127.0.0.1:9348/json/list', { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(`http://127.0.0.1:${portArgument}/json/list`, { signal: AbortSignal.timeout(3000) });
       targets = await response.json();
       target = targets.find((entry) => entry.type === 'page' && /^https?:\/\/tauri\.localhost(?:\/|$)/.test(entry.url));
       if (target?.webSocketDebuggerUrl) break;
@@ -41,7 +43,7 @@ try {
   const debugUrl = new URL(target.webSocketDebuggerUrl);
   // WebView reports its local socket address. Always use the dedicated local forward.
   debugUrl.hostname = '127.0.0.1';
-  debugUrl.port = '9348';
+  debugUrl.port = portArgument;
   socket = new WebSocket(debugUrl);
   socket.addEventListener('message', ({ data }) => {
     const message = JSON.parse(data);
@@ -70,6 +72,8 @@ try {
         return {
           url: location.href, title: document.title, readyState: document.readyState,
           viewport: { width: innerWidth, height: innerHeight, devicePixelRatio },
+          screen: { width: screen.width, height: screen.height },
+          layout: document.querySelector('.app')?.className,
           tauriAvailable: Boolean(window.__TAURI_INTERNALS__),
           rootChildren: root?.childElementCount ?? 0,
           workspaceVisible: Boolean(bounds && bounds.width > 0 && bounds.height > 0),
@@ -93,6 +97,14 @@ try {
   const screenshot = await send('Page.captureScreenshot', { format: 'png' });
   await writeFile(join(output, 'webview.png'), Buffer.from(screenshot.data, 'base64'));
   if (stable < 2) throw new Error('Android launched RushLink, but its visible app content did not become ready.');
+  if (profile) {
+    const shortSide = Math.min(lastState.screen.width, lastState.screen.height);
+    const expected = profile === 'phone' ? 1080 / (440 / 160) : 800;
+    const expectedLayout = lastState.viewport.width < 600 ? 'phone' : 'tablet';
+    if (Math.abs(shortSide - expected) > 2 || !lastState.layout?.includes(`app--${expectedLayout}`)) {
+      throw new Error(`Unexpected ${profile} screen or app layout: ${JSON.stringify(lastState)}. See page-state.json.`);
+    }
+  }
   console.log(`RushLink is ready (${lastState.viewport.width}x${lastState.viewport.height}).`);
 } catch (error) {
   await save('webview-error.json', { message: error.message, lastState });

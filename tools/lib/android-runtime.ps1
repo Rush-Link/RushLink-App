@@ -1,4 +1,4 @@
-# Runtime helpers for the workspace-owned Android tablet. No default ADB port or
+# Runtime helpers for the workspace-owned Android emulators. No default ADB port or
 # Android Studio AVD is used by these functions.
 
 function ConvertTo-RushLinkNativeArguments {
@@ -67,16 +67,21 @@ function Invoke-RushLinkRuntimeCommand {
 }
 
 function Get-RushLinkAndroidRuntime {
-  param([string]$RepoRoot)
-  $root = [IO.Path]::GetFullPath((Join-Path $RepoRoot 'release-artifacts/build-tools/android-tablet'))
+  param([string]$RepoRoot, [ValidateSet('tablet','phone')][string]$Profile = 'tablet')
+  $phone = $Profile -eq 'phone'
+  $avdName = if ($phone) { 'RushLink_Phone_API_36' } else { 'RushLink_Tablet_API_36' }
+  $root = [IO.Path]::GetFullPath((Join-Path $RepoRoot "release-artifacts/build-tools/android-$Profile"))
   return [pscustomobject]@{
     RepoRoot=[IO.Path]::GetFullPath($RepoRoot); Root=$root
     UserHome=(Join-Path $root 'user'); AvdHome=(Join-Path $root 'avd')
-    AvdName='RushLink_Tablet_API_36'; DeviceProfile='medium_tablet'
-    AvdPath=(Join-Path $root 'avd/RushLink_Tablet_API_36.avd')
+    Profile=$Profile; AvdName=$avdName; DeviceProfile=$(if ($phone) { 'medium_phone' } else { 'medium_tablet' })
+    DisplayName="RushLink $Profile"; Width=$(if ($phone) { 1080 } else { 1920 }); Height=$(if ($phone) { 2340 } else { 1200 })
+    Density=$(if ($phone) { 440 } else { 240 }); Orientation=$(if ($phone) { 'portrait' } else { 'landscape' })
+    AvdPath=(Join-Path $root "avd/$avdName.avd")
     StatePath=(Join-Path $root 'session.json'); LockPath=(Join-Path $root 'workflow.lock')
-    AdbPort=5038; ConsolePort=5580; TransportPort=5581; DebugPort=9348
-    Serial='emulator-5580'; Package='app.rushlink.android'
+    AdbPort=$(if ($phone) { 5039 } else { 5038 }); ConsolePort=$(if ($phone) { 5582 } else { 5580 })
+    TransportPort=$(if ($phone) { 5583 } else { 5581 }); DebugPort=$(if ($phone) { 9349 } else { 9348 })
+    Serial=$(if ($phone) { 'emulator-5582' } else { 'emulator-5580' }); Package='app.rushlink.android'
   }
 }
 
@@ -124,9 +129,9 @@ function Read-RushLinkRuntimeSession {
   param($Runtime)
   if (-not (Test-Path -LiteralPath $Runtime.StatePath)) { return $null }
   try { $state = Get-Content -LiteralPath $Runtime.StatePath -Raw | ConvertFrom-Json }
-  catch { throw "Cannot read the tablet session record at $($Runtime.StatePath). No running process was changed." }
+  catch { throw "Cannot read the emulator session record at $($Runtime.StatePath). No running process was changed." }
   if ($state.Version -ne 1 -or $state.RepoRoot -ne $Runtime.RepoRoot -or $state.AvdName -ne $Runtime.AvdName) {
-    throw 'The tablet session record belongs to another workspace. No running process was changed.'
+    throw 'The emulator session record belongs to another workspace. No running process was changed.'
   }
   # A cancelled startup may have recorded the launcher just before its QEMU child appeared.
   # Recognize only that still-running launcher's exact binary, AVD and console port.
@@ -144,7 +149,7 @@ function Assert-RushLinkRuntimeOwnership {
   foreach ($listener in (Get-RushLinkRuntimeListeners $Runtime)) {
     $owner = if ($listener.LocalPort -in @($Runtime.AdbPort, $Runtime.DebugPort)) { $Session.Adb } else { $Session.Emulator }
     if (-not (Test-RushLinkProcessIdentity $owner) -or $listener.OwningProcess -ne $owner.Id) {
-      throw "Port $($listener.LocalPort) is occupied by a process outside this tablet session. Close that conflicting service or choose another workflow; RushLink did not stop it."
+      throw "Port $($listener.LocalPort) is occupied by a process outside this emulator session. Close that conflicting service or choose another workflow; RushLink did not stop it."
     }
   }
 }
@@ -154,7 +159,7 @@ function Invoke-RushLinkTabletAdb {
   $session = Read-RushLinkRuntimeSession $Runtime
   Assert-RushLinkRuntimeOwnership $Runtime $session
   if (-not (Test-RushLinkProcessIdentity $session.Adb) -or $session.Adb.Executable -ine $AdbPath) {
-    throw 'The recorded isolated ADB server is no longer running. Run the tablet launcher again; no replacement server was started by this command.'
+    throw 'The recorded isolated ADB server is no longer running. Run the emulator launcher again; no replacement server was started by this command.'
   }
   return Invoke-RushLinkRuntimeCommand -Executable $AdbPath -Arguments (@('-P', [string]$Runtime.AdbPort, '-s', $Runtime.Serial) + $Arguments) -TimeoutSeconds $TimeoutSeconds -LogPath $LogPath -Environment @{ ADB_SERVER_SOCKET="tcp:127.0.0.1:$($Runtime.AdbPort)"; ANDROID_ADB_SERVER_PORT=[string]$Runtime.AdbPort } -AllowFailure:$AllowFailure
 }
@@ -172,7 +177,7 @@ function Start-RushLinkTabletAdb {
     if ($listeners.Count) { Assert-RushLinkRuntimeOwnership $Runtime $Session; return }
     Start-Sleep -Milliseconds 250
   }
-  throw 'The isolated ADB server did not become ready on port 5038.'
+  throw "The isolated ADB server did not become ready on port $($Runtime.AdbPort)."
 }
 
 function Ensure-RushLinkTabletAvd {
@@ -181,23 +186,23 @@ function Ensure-RushLinkTabletAvd {
   if (Test-Path -LiteralPath $config) {
     $content = Get-Content -LiteralPath $config -Raw
     if ($content -notmatch '(?m)^abi.type=x86_64\s*$' -or $content -notmatch '(?m)^image.sysdir.1=system-images[\\/]android-36[\\/]default[\\/]x86_64') {
-      throw "The workspace tablet uses an unexpected system image. Its data was preserved: $config"
+      throw "The workspace emulator uses an unexpected system image. Its data was preserved: $config"
     }
     return
   }
-  if (Test-Path -LiteralPath $Runtime.AvdPath) { throw "The tablet directory is incomplete: $($Runtime.AvdPath). It was not replaced." }
+  if (Test-Path -LiteralPath $Runtime.AvdPath) { throw "The emulator directory is incomplete: $($Runtime.AvdPath). It was not replaced." }
   $toolsDir = Join-Path $Tools.AndroidHome 'cmdline-tools/latest'
-  Write-Host 'Creating the persistent RushLink tablet (Android 36, x86_64).'
+  Write-Host 'Creating the persistent RushLink emulator (Android 36, x86_64).'
   Invoke-RushLinkRuntimeCommand -Executable (Join-Path $Tools.JavaHome 'bin/java.exe') -Arguments @(
     "-Dcom.android.sdkmanager.toolsdir=$toolsDir", '-classpath', (Join-Path $toolsDir 'lib/avdmanager-classpath.jar'),
     'com.android.sdklib.tool.AvdManagerCli', 'create', 'avd', '--name', $Runtime.AvdName,
     '--package', 'system-images;android-36;default;x86_64', '--device', $Runtime.DeviceProfile, '--path', $Runtime.AvdPath
   ) -InputText 'no' -TimeoutSeconds 90 -LogPath (Join-Path $LogRoot 'avd-create.log') | Out-Null
-  # Preserve a 1280x800 tablet layout at a lighter 1920x1200 native resolution.
+  # Set the selected profile dimensions once; preserve existing emulator settings on later runs.
   $defaults = [ordered]@{
-    'avd.ini.displayname'='RushLink Tablet'; 'hw.lcd.width'='1920'; 'hw.lcd.height'='1200'; 'hw.lcd.density'='240'
+    'avd.ini.displayname'=$Runtime.DisplayName; 'hw.lcd.width'=$Runtime.Width; 'hw.lcd.height'=$Runtime.Height; 'hw.lcd.density'=$Runtime.Density
     'hw.ramSize'='3072'; 'hw.cpu.ncore'='4'; 'hw.gpu.enabled'='yes'; 'hw.gpu.mode'='auto'
-    'hw.initialOrientation'='landscape'; 'disk.dataPartition.size'='6G'; 'fastboot.forceColdBoot'='no'; 'fastboot.forceFastBoot'='yes'
+    'hw.initialOrientation'=$Runtime.Orientation; 'disk.dataPartition.size'='6G'; 'fastboot.forceColdBoot'='no'; 'fastboot.forceFastBoot'='yes'
   }
   $lines = [Collections.Generic.List[string]]::new()
   foreach ($line in (Get-Content -LiteralPath $config)) {
@@ -211,13 +216,13 @@ function Ensure-RushLinkTabletAvd {
 function Start-RushLinkTabletEmulator {
   param($Runtime, $Tools, $Session, [string]$LogRoot, [switch]$Headless, [int]$MemoryMb=3072, [string]$Gpu='auto')
   if (Test-RushLinkProcessIdentity $Session.Emulator) {
-    Write-Host 'Reusing the running RushLink tablet.'
+    Write-Host 'Reusing the running RushLink emulator.'
     return $false
   }
   $arguments = @('-avd',$Runtime.AvdName,'-port',[string]$Runtime.ConsolePort,'-sysdir',$Tools.SystemImagePath,'-memory',[string]$MemoryMb,'-cores','4','-accel','on','-gpu',$Gpu,'-no-audio','-no-boot-anim')
   if ($Headless) { $arguments += '-no-window' }
   $style = if ($Headless) { 'Hidden' } else { 'Normal' }
-  Write-Host 'Starting the RushLink tablet. Later starts reuse its saved state.'
+  Write-Host 'Starting the RushLink emulator. Later starts reuse its saved state.'
   $process = Start-Process -FilePath $Tools.EmulatorPath -ArgumentList (ConvertTo-RushLinkNativeArguments $arguments) -WindowStyle $style -PassThru -RedirectStandardOutput (Join-Path $LogRoot 'emulator.stdout.log') -RedirectStandardError (Join-Path $LogRoot 'emulator.stderr.log')
   $Session.Launcher = Get-RushLinkProcessIdentity $process.Id
   $Session.Headless = [bool]$Headless
@@ -233,10 +238,10 @@ function Start-RushLinkTabletEmulator {
       Assert-RushLinkRuntimeOwnership $Runtime $Session
       return $true
     }
-    if (-not (Test-RushLinkProcessIdentity $Session.Launcher)) { throw "The tablet launcher exited before its console appeared. See $(Join-Path $LogRoot 'emulator.stderr.log')." }
+    if (-not (Test-RushLinkProcessIdentity $Session.Launcher)) { throw "The emulator launcher exited before its console appeared. See $(Join-Path $LogRoot 'emulator.stderr.log')." }
     Start-Sleep -Milliseconds 500
   }
-  throw 'The tablet console did not become ready within 45 seconds.'
+  throw 'The emulator console did not become ready within 45 seconds.'
 }
 
 function Wait-RushLinkTabletBoot {
@@ -246,7 +251,7 @@ function Wait-RushLinkTabletBoot {
   $stable = 0
   while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
     Assert-RushLinkRuntimeOwnership $Runtime $Session
-    if (-not (Test-RushLinkProcessIdentity $Session.Emulator)) { throw 'The RushLink tablet exited during boot.' }
+    if (-not (Test-RushLinkProcessIdentity $Session.Emulator)) { throw 'The RushLink emulator exited during boot.' }
     try {
       $boot = Invoke-RushLinkTabletAdb $Runtime $Tools.AdbPath @('shell','getprop','sys.boot_completed') -TimeoutSeconds 5 -AllowFailure
     } catch [TimeoutException] {
@@ -259,14 +264,14 @@ function Wait-RushLinkTabletBoot {
     if ($watch.Elapsed.TotalSeconds -ge $lastProgress + 20) { $lastProgress=[int]$watch.Elapsed.TotalSeconds; Write-Host "Waiting for Android to finish booting ($lastProgress seconds)." }
     Start-Sleep -Seconds 2
   }
-  throw "The tablet did not finish booting within $TimeoutSeconds seconds. Its logs were retained."
+  throw "The emulator did not finish booting within $TimeoutSeconds seconds. Its logs were retained."
 }
 
 function Stop-RushLinkTabletSession {
   param($Runtime, $Session, [string]$AdbPath, [switch]$KeepEmulator, [switch]$KeepAdb)
   if (-not $Session) {
     Assert-RushLinkRuntimeOwnership $Runtime $Session
-    Write-Host 'No RushLink tablet session is running.'
+    Write-Host 'No RushLink emulator session is running.'
     return
   }
   Resolve-RushLinkTabletProcess $Runtime $Session
@@ -275,7 +280,7 @@ function Stop-RushLinkTabletSession {
     Invoke-RushLinkTabletAdb $Runtime $AdbPath @('forward','--remove',"tcp:$($Runtime.DebugPort)") -AllowFailure | Out-Null
   }
   if (-not $KeepEmulator -and (Test-RushLinkProcessIdentity $Session.Emulator)) {
-    Write-Host 'Closing the RushLink tablet and saving its state.'
+    Write-Host 'Closing the RushLink emulator and saving its state.'
     if (Test-RushLinkProcessIdentity $Session.Adb) {
       Invoke-RushLinkTabletAdb $Runtime $AdbPath @('emu','kill') -AllowFailure | Out-Null
     } else {
@@ -285,7 +290,7 @@ function Stop-RushLinkTabletSession {
     $watch = [Diagnostics.Stopwatch]::StartNew()
     while ((Test-RushLinkProcessIdentity $Session.Emulator) -and $watch.Elapsed.TotalSeconds -lt 45) { Start-Sleep -Milliseconds 500 }
     if (Test-RushLinkProcessIdentity $Session.Emulator) {
-      Write-Warning 'The tablet did not finish saving its snapshot; stopping only its recorded process.'
+      Write-Warning 'The emulator did not finish saving its snapshot; stopping only its recorded process.'
       Stop-Process -Id $Session.Emulator.Id -Force
     }
   }
@@ -298,6 +303,6 @@ function Stop-RushLinkTabletSession {
     $Session.Adb=$null
   }
   Write-RushLinkRuntimeSession $Runtime $Session
-  if ($KeepEmulator) { Write-Host 'The previously running RushLink tablet was left open.' }
-  else { Write-Host 'RushLink tablet stopped. Other emulators and ADB servers were left running.' }
+  if ($KeepEmulator) { Write-Host 'The previously running RushLink emulator was left open.' }
+  else { Write-Host 'RushLink emulator stopped. Other emulators and ADB servers were left running.' }
 }

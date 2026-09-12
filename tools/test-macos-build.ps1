@@ -52,14 +52,15 @@ function Invoke-Git {
 }
 Assert-Throws { Invoke-AuthenticatedGit @('ls-remote') } 'Expected Git fixture failure did not propagate.'
 foreach ($key in $authKeys) { Assert ([Environment]::GetEnvironmentVariable($key, 'Process') -ceq $authBefore[$key]) "Git auth environment was not restored: $key" }
-foreach ($path in @('src/pages/new.tsx','tools/build-new.ps1','tools/lib/test.mjs','docs/WORKFLOW.md','.vscode/tasks.json','src-tauri/gen/android/gradlew','src-tauri/gen/android/gradle/wrapper/gradle-wrapper.jar','src-tauri/icons/icon.png','public/new.svg','site/new.mjs','e2e/new.spec.ts','brand/master/new.svg')) {
+foreach ($path in @('src-tauri/Info.ios.plist','src-tauri/tauri.ios.conf.json','src/pages/new.tsx','tools/build-new.ps1','tools/lib/test.mjs','docs/WORKFLOW.md','.vscode/tasks.json','src-tauri/gen/android/gradlew','src-tauri/gen/android/gradle/wrapper/gradle-wrapper.jar','src-tauri/icons/icon.png','public/new.svg','site/new.mjs','e2e/new.spec.ts','brand/master/new.svg')) {
   Assert (Test-EligibleNewSource $path) "Expected source eligibility: $path"
 }
 foreach ($path in @('release-artifacts/test.dmg','src/model.nam','src/.env','tools/auth.pem','src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/test.so','src-tauri/gen/android/app/build/output.apk','src-tauri/gen/android/tauri.settings.gradle','src-tauri/target/build/file','src/.codex/settings.json')) {
   Assert (-not (Test-EligibleNewSource $path)) "Expected exclusion: $path"
 }
+$fixtureArtifactName = 'RushLink-macos-arm64-7'
 function Get-GitHub([string]$Path) {
-  [pscustomobject]@{ artifacts = @([pscustomobject]@{ id = 88; name = 'RushLink-macos-arm64-7'; expired = $false }) }
+  [pscustomobject]@{ artifacts = @([pscustomobject]@{ id = 88; name = $fixtureArtifactName; expired = $false }) }
 }
 $downloads = 0
 function Save-GitHubDownload([string]$ApiPath, [string]$Destination) {
@@ -110,6 +111,21 @@ foreach ($entries in @(
   Assert-Throws { Receive-CompletedArtifacts $run $jobs '0.1.1' $directory } 'Invalid archive/checksum was accepted.'
   Assert (-not (Test-Path -LiteralPath (Join-Path $directory "macos-arm64/$dmgName"))) 'Invalid archive published an installer.'
 }
+
+# The iOS downloader must select the right package and independently verify both targets.
+$Platform = 'ios'
+foreach ($kind in @('device','simulator')) {
+  $fixtureArtifactName = "RushLink-ios-$kind-7"
+  $name = if ($kind -eq 'device') { 'RushLink_0.1.1_ios-iphone-ipad_unsigned.ipa' } else { 'RushLink_0.1.1_ios-simulator-arm64.app.zip' }
+  $sum = "SHA256SUMS-ios-$kind.txt"
+  $iosJobs = @([pscustomobject]@{ name="ios ($kind)"; conclusion='success' })
+  New-FixtureArchive @(@{Name=$name;Text=$payload},@{Name=$sum;Text="$hash  $name`n"})
+  $records = @(Receive-CompletedArtifacts $run $iosJobs '0.1.1' (New-TestDirectory))
+  Assert ($records.Count -eq 1 -and $records[0].name -eq $name -and $records[0].sha256 -eq $hash) "iOS $kind package failed verification."
+  New-FixtureArchive @(@{Name=$name;Text='tampered'},@{Name=$sum;Text="$hash  $name`n"})
+  Assert-Throws { Receive-CompletedArtifacts $run $iosJobs '0.1.1' (New-TestDirectory) } "Tampered iOS $kind package was accepted."
+}
+$Platform = 'macos'
 
 # Exercise actual Git snapshot preparation in an isolated fixture repository.
 # Both GitHub access and the push boundary are replaced: no network can occur.
