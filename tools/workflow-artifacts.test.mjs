@@ -1,33 +1,61 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { dependencyInstallMatches, parseChecksums } from "./workflow-artifacts.mjs";
 
+function runWindowsPowerShell(args, timeout, inheritedEnvironment = process.env) {
+  const env = { ...inheritedEnvironment };
+  // A PowerShell Core parent can pass its incompatible module paths to Desktop
+  // PowerShell 5.1. Let the child initialize its own built-in module search paths.
+  for (const key of Object.keys(env)) if (key.toLowerCase() === "psmodulepath") delete env[key];
+  return spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", ...args], {
+    env, encoding: "utf8", timeout, windowsHide: true,
+  });
+}
+
+test.skipIf(process.platform !== "win32")("Windows PowerShell loads native hash tools with an inherited Core module path", () => {
+  const file = join(dirname(fileURLToPath(import.meta.url)), "workflow-artifacts.mjs");
+  const inheritedModulePath = join(dirname(file), "rushlink-core-only-modules");
+  const command = [
+    "$ErrorActionPreference='Stop'",
+    "$hash = (Get-FileHash -LiteralPath $env:RUSHLINK_TEST_HASH_FILE -Algorithm SHA256).Hash",
+    "$nestedHash = & powershell.exe -NoProfile -NonInteractive -Command '(Get-FileHash -LiteralPath $env:RUSHLINK_TEST_HASH_FILE -Algorithm SHA256).Hash'",
+    "if ($LASTEXITCODE -ne 0) { throw 'Nested Windows PowerShell hashing failed.' }",
+    "@{ hash=$hash; nestedHash=$nestedHash; modulePath=$env:PSModulePath } | ConvertTo-Json -Compress",
+  ].join("\n");
+  const result = runWindowsPowerShell(["-Command", command], 15000, {
+    ...process.env, PSModulePath: inheritedModulePath, RUSHLINK_TEST_HASH_FILE: file,
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  const actual = JSON.parse(result.stdout);
+  const expectedHash = createHash("sha256").update(readFileSync(file)).digest("hex");
+  assert.equal(actual.hash.toLowerCase(), expectedHash);
+  assert.equal(actual.nestedHash.toLowerCase(), expectedHash);
+  assert.equal(actual.modulePath.toLowerCase().includes(inheritedModulePath.toLowerCase()), false);
+}, 20000);
+
 test.skipIf(process.platform !== "win32")("Phone and tablet runtimes preserve separate sessions and correct screen sizes", () => {
   const script = join(dirname(fileURLToPath(import.meta.url)), "test-android-runtime.ps1");
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {
-    encoding: "utf8", timeout: 15000, windowsHide: true,
-  });
+  const result = runWindowsPowerShell(["-File", script], 15000);
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 }, 20000);
 
 test.skipIf(process.platform !== "win32")("Android setup preserves isolation and rejects invalid tools and licenses", () => {
   const script = join(dirname(fileURLToPath(import.meta.url)), "test-android-tools.ps1");
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {
-    encoding: "utf8", timeout: 55000, windowsHide: true,
-  });
+  const result = runWindowsPowerShell(["-File", script], 55000);
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 }, 60000);
 
 test.skipIf(process.platform !== "win32")("Mac build snapshots preserve Git state and reject invalid artifacts", () => {
   const script = join(dirname(fileURLToPath(import.meta.url)), "test-macos-build.ps1");
-  const result = spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script], {
-    encoding: "utf8", timeout: 55000, windowsHide: true,
-  });
+  const result = runWindowsPowerShell(["-File", script], 55000);
   assert.equal(result.error, undefined, result.error?.message);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 }, 60000);
