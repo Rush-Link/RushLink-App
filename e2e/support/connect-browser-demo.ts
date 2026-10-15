@@ -9,7 +9,7 @@ export async function connectBrowserDemo(page: Page) {
     await expect(gate).not.toBeVisible();
   }
 
-  const welcome = page.getByRole("dialog", { name: /Welcome to RushLink/i });
+  const welcome = page.getByRole("dialog", { name: /Welcome to RushLink by Cygma Audio/i });
   const onboardingAppeared = await welcome.waitFor({ state: "visible", timeout: 2_500 })
     .then(() => true)
     .catch(() => false);

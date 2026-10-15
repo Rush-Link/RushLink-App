@@ -207,11 +207,21 @@ export interface ToneModel {
   metadata?: Record<string, string | number | boolean>;
 }
 
+export type NamPreference = "auto" | "nam2" | "nam2-lite" | "other";
+
 export interface TestRigTemplate {
   id: string;
   name: string;
   description: string;
   blocks: RigBlock[];
+  /** Architecture/runtime priority for the provider's auditioned capture. */
+  namPreference?: NamPreference;
+  /** Model ID, name or architecture selected when namPreference is other. */
+  namOtherModel?: string;
+  /** One-based reflected NAM DSP host, independent of its chain position. */
+  namInstance?: number;
+  /** Zero-based audition host position. Older templates use slot 6. */
+  captureSlot?: number;
 }
 
 export interface PendingWrite {

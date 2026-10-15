@@ -20,6 +20,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Install Tauri Linux dependencies
@@ -28,7 +30,7 @@ jobs:
           libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev
           libssl-dev libayatana-appindicator3-dev librsvg2-dev
       - name: Native bridge tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
 
   test:
     runs-on: ubuntu-latest
@@ -36,6 +38,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -43,10 +47,12 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm ci
+      - name: Repository hygiene and documentation links
+        run: npm run check:repo
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
       - name: Production build
-        run: npm run build
+        run: npm run release:check
       - name: Unit and integration coverage
         run: npm run test:coverage:all
       - name: Test-order stability

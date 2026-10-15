@@ -13,9 +13,11 @@ import { flexPrimeMidiCommand } from "../domain/headrush-midi";
 import type { SavedWorkflow } from "../domain/rushlink-sync";
 import { canonicalLiveSwitchType, resolveLiveButtonGesture } from "../domain/stage-gestures";
 import { equalDeviceValue, mergeReflectedTree } from "../services/reflected-tree-merge";
-import { buildTestRigDevicePlan, testRigBlockProperties, testRigModulePath, testRigPlanMismatches, type TestRigDevicePlan } from "../domain/tone-audition-chain";
+import { buildTestRigDevicePlan, testRigBlockProperties, testRigModulePath, testRigNamFileBindings, testRigPlanMismatches, type TestRigDevicePlan } from "../domain/tone-audition-chain";
 import { deviceErrorDetail, deviceErrorMessage } from "../services/device-errors";
 import { saveTone3000Source } from "../services/tone3000-save";
+import { isNamModule, namModules, namParameterValue, selectPreferredNamModel } from "../domain/nam";
+import { normalizeThemePreference, type ThemePreference } from "../domain/theme";
 
 interface Preferences {
   address: string;
@@ -24,6 +26,7 @@ interface Preferences {
   writeMode: WriteMode;
   firstWriteResolved: boolean;
   density: "comfortable" | "compact" | "stage";
+  theme: ThemePreference;
   reduceMotion: boolean;
   highContrast: boolean;
   keepAwake: boolean;
@@ -298,7 +301,7 @@ function migrateSeededTestRigSounds(rigs: TestRigTemplate[]): TestRigTemplate[] 
     const reference = testRigTemplates.find((candidate) => candidate.id === rig.id);
     const legacyAmp = rig.blocks.find((block) => block.id === `${rig.id}-amp`);
     const isLegacySeed = Boolean(reference && (legacyAmp?.name === "Reference Amp" || legacyAmp?.parameters.some((parameter) => parameter.id === "gain")));
-    if (!reference || !isLegacySeed) return { ...rig, blocks: normalizeTestRigSlots(rig.blocks) };
+    if (!reference || !isLegacySeed) return { ...rig, blocks: normalizeTestRigSlots(rig.blocks, rig.captureSlot) };
 
     const customBlocks = rig.blocks.filter((block) => {
       const prefix = `${rig.id}-`;
@@ -308,7 +311,7 @@ function migrateSeededTestRigSounds(rigs: TestRigTemplate[]): TestRigTemplate[] 
       const previous = rig.blocks.find((candidate) => candidate.id === block.id);
       return previous ? { ...block, enabled: previous.enabled } : block;
     });
-    return { ...rig, blocks: normalizeTestRigSlots([...seededBlocks, ...customBlocks]) };
+    return { ...rig, blocks: normalizeTestRigSlots([...seededBlocks, ...customBlocks], rig.captureSlot) };
   });
 }
 
@@ -363,8 +366,8 @@ export function migratePersistedTestRigIrFiles(rigs: TestRigTemplate[]): TestRig
 
 const LEGACY_CAPTURE_CONTROL_IDS = new Set(["mix", "level", "tone"]);
 const captureParameterKey = (parameter: { id: string; sourceProperty?: string }) => (parameter.sourceProperty || parameter.id).toLocaleLowerCase();
-const isProtectedCaptureFileParameter = (parameter: { id: string; sourceProperty?: string; deviceFile?: unknown }) => Boolean(parameter.deviceFile)
-  || /^(?:loadedclone|filemissing)\d*$/i.test(parameter.sourceProperty || parameter.id);
+const isProtectedCaptureFileParameter = (parameter: { id: string; sourceProperty?: string; deviceFile?: unknown }) =>
+  /^(?:loadedclone|filemissing|ir)$/i.test(parameter.sourceProperty || parameter.id);
 
 /**
  * Upgrades persisted Test Rigs from the old generic Capture marker controls to
@@ -383,14 +386,18 @@ export function migratePersistedTestRigNamControls(rigs: TestRigTemplate[]): Tes
       const existingByKey = new Map(safeExisting.map((parameter) => [captureParameterKey(parameter), parameter]));
       const parameters = defaults.map((fallback) => {
         const previous = existingByKey.get(captureParameterKey(fallback));
+        if (!previous && fallback.id === "OutputMode") {
+          const legacyNormalize = existingByKey.get("normalize");
+          if (legacyNormalize) return { ...structuredClone(fallback), value: legacyNormalize.value === false ? "Raw" : "Normalize" };
+        }
         if (!previous) return structuredClone(fallback);
-        const { deviceFile: _deviceFile, ...safePrevious } = previous;
-        return { ...structuredClone(fallback), ...safePrevious, id: fallback.id, sourceProperty: fallback.sourceProperty };
+        const merged = { ...structuredClone(fallback), ...previous, id: fallback.id, sourceProperty: fallback.sourceProperty };
+        const choiceIndex = merged.choiceValues?.indexOf(previous.value) ?? -1;
+        return choiceIndex >= 0 && merged.choices ? { ...merged, value: merged.choices[choiceIndex] } : merged;
       });
       for (const parameter of safeExisting) {
         if (defaultKeys.has(captureParameterKey(parameter))) continue;
-        const { deviceFile: _deviceFile, ...safeParameter } = parameter;
-        parameters.push(safeParameter);
+        parameters.push(parameter);
       }
       return { ...block, model: "Neural Amp Modeler", enabled: true, parameters };
     }),
@@ -457,7 +464,7 @@ export function migratePersistedTestRigOrder(rigs: TestRigTemplate[]): TestRigTe
       const updated = reference.blocks.find((candidate) => candidate.id === block.id);
       return updated ? { ...block, slot: updated.slot } : block;
     }) : rig.blocks;
-    return { ...rig, blocks: normalizeTestRigEffectOrder(normalizeTestRigSlots(corrected)) };
+    return { ...rig, blocks: normalizeTestRigEffectOrder(normalizeTestRigSlots(corrected, rig.captureSlot)) };
   });
 }
 
@@ -594,7 +601,7 @@ export interface AppState {
   selectToneModel: (id: string | null) => void;
   setCaptureOverride: (capture: CaptureType) => void;
   selectTestRig: (id: string) => void;
-  updateTestRigDetails: (patch: Partial<Pick<TestRigTemplate, "name" | "description">>) => void;
+  updateTestRigDetails: (patch: Partial<Pick<TestRigTemplate, "name" | "description" | "namPreference" | "namOtherModel" | "namInstance" | "captureSlot">>) => void;
   toggleTestRigBlock: (blockId: string) => void;
   updateTestRigBlock: (blockId: string, patch: Partial<Omit<RigBlock, "id" | "slot">>) => void;
   updateTestRigParameter: (blockId: string, parameterId: string, value: string | number | boolean) => void;
@@ -811,6 +818,9 @@ async function waitForTestRigPlan(input: {
       moduleTypes: input.moduleTypes,
       currentModuleTypeIds,
       previousModuleTypeIds: input.previousModuleTypeIds,
+      namInstance: input.rig.namInstance,
+      namPreference: input.rig.namPreference,
+      captureSlot: input.rig.captureSlot,
     });
     if (lastPlan.captureSlot !== null || (lastPlan.complete && input.tone.source === "HeadRush Cloud" && input.tone.remoteKind !== "clone" && input.captureType !== "ir")) {
       return { plan: lastPlan, currentModuleTypeIds };
@@ -878,7 +888,7 @@ interface TestRigCaptureFile {
 async function waitForProviderCaptureFile(plan: TestRigDevicePlan): Promise<TestRigCaptureFile | null> {
   const capture = plan.assignments.find((assignment) => assignment.capture);
   if (!capture || !/(?:Clone|Neural Amp Modeler|\bIR(?: \(1024\))?\b)/.test(capture.moduleName)) return null;
-  const path = testRigModulePath(capture.moduleName);
+  const path = testRigModulePath(plan.captureSourceModuleName ?? capture.moduleName);
   const candidates: TestRigCaptureFile["property"][] = /\bIR(?: \(1024\))?\b/.test(capture.moduleName)
     ? ["IR", "IR2"]
     : ["LoadedClone", "LoadedClone2"];
@@ -897,8 +907,28 @@ async function waitForProviderCaptureFile(plan: TestRigDevicePlan): Promise<Test
 
 async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree: HeadRushSubtree | null, captureFile: TestRigCaptureFile | null) {
   const reflectedSubtree: HeadRushSubtree = { ...(subtree ?? {}) };
+  // Complete every structural change before reading mode availability. The
+  // Full/Lite selectors depend on the total lanes across both NAM hosts.
+  for (const assignment of plan.assignments.filter((item) => isNamModule(item.moduleName))) {
+    const path = testRigModulePath(assignment.moduleName);
+    try { Object.assign(reflectedSubtree, await deviceApi.subtree(path) as HeadRushSubtree); }
+    catch { /* Validate the available schema in the configuration pass. */ }
+    const doubling = assignment.block.parameters.find((parameter) => (parameter.sourceProperty ?? parameter.id) === "Doubling");
+    const object = reflectedSubtree[path];
+    if (doubling && object?.meta?.properties?.Doubling && object.value?.Doubling !== parameterDeviceValue(doubling, doubling.value)) {
+      const response = await deviceApi.setProperties(path, { Doubling: parameterDeviceValue(doubling, doubling.value) });
+      assertDeviceMutation(response.status, `Configuring ${assignment.moduleName} doubling`);
+    }
+  }
   for (const assignment of plan.assignments) {
     const path = testRigModulePath(assignment.moduleName);
+    if (isNamModule(assignment.moduleName)) {
+      // Doubling changes which second-lane controls the engine permits. Refresh
+      // after that structural change so stale cached disabled flags cannot
+      // discard the user's second NAM file or calibration settings.
+      try { Object.assign(reflectedSubtree, await deviceApi.subtree(path) as HeadRushSubtree); }
+      catch { /* Existing schema is checked below; writes are still verified. */ }
+    }
     const hasSchema = () => Object.keys(reflectedSubtree[path]?.meta?.properties ?? {}).length > 0;
     if (!hasSchema()) {
       try { Object.assign(reflectedSubtree, await deviceApi.subtree(path) as HeadRushSubtree); }
@@ -907,6 +937,32 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     if (!hasSchema() && assignment.block.parameters.some((parameter) => parameter.writable !== false
       && !(assignment.capture && isProtectedCaptureFileParameter(parameter)))) {
       throw new Error(`HeadRush did not expose the settings for ${assignment.block.name}. Refresh the device before saving or auditioning this Test Rig.`);
+    }
+    const boundNamFiles = isNamModule(assignment.moduleName) && hasSchema() ? {
+      ...testRigNamFileBindings(assignment.block, reflectedSubtree[path]),
+      ...(assignment.capture && captureFile ? { [captureFile.property]: captureFile.value } : {}),
+    } : {};
+    if (Object.keys(boundNamFiles).length) {
+      const before = await deviceApi.properties(path);
+      const ready = (actual: Record<string, unknown>) => Object.entries(boundNamFiles).every(([property, value]) =>
+        deviceFileMatches(actual[property], value) && !actual[property.endsWith("2") ? "FileMissing2" : "FileMissing"]);
+      if (!ready(before)) {
+        const response = await deviceApi.setProperties(path, boundNamFiles);
+        assertDeviceMutation(response.status, `Loading ${assignment.moduleName} files`);
+        let actual = before;
+        for (const delay of AUDITION_SETTLE_DELAYS) {
+          await auditionDelay(delay);
+          actual = await deviceApi.properties(path);
+          if (ready(actual)) break;
+        }
+        if (!ready(actual)) {
+          const reason = String(actual.FileMissing || actual.FileMissing2 || "");
+          throw new Error(`${assignment.block.name} is present, but HeadRush did not finish loading its selected NAM file.${reason ? ` The device reported: ${reason}.` : ""}`);
+        }
+      }
+      // A1/A2 and calibration availability can change only after the selected
+      // file has decoded. Apply gains and mode from that fresh schema.
+      Object.assign(reflectedSubtree, await deviceApi.subtree(path) as HeadRushSubtree);
     }
     const properties = {
       ...testRigBlockProperties(assignment.block, reflectedSubtree[path], assignment.enabled),
@@ -932,8 +988,11 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     const mismatchedProperties = (actual: Record<string, unknown>) => Object.keys(properties)
       .filter((property) => fileProperties.includes(property)
         ? !fileMatches(actual, property)
+        : /^LightMode2?$/.test(property) && properties[property] === false && actual[property] === true
+          && Array.isArray(actual.disabled) && actual.disabled.includes(property) ? false
         : !parameterMatches(actual[property], properties[property]));
-    const response = await deviceApi.setProperties(path, properties);
+    const settings = Object.fromEntries(Object.entries(properties).filter(([property]) => !(property in boundNamFiles)));
+    const response = await deviceApi.setProperties(path, settings);
     assertDeviceMutation(response.status, `Configuring ${assignment.block.name}`);
 
     // Module creation and device-file decoding are asynchronous. A successful
@@ -946,7 +1005,7 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
       actual = await deviceApi.properties(path);
       if (!mismatchedProperties(actual).length) break;
       if (attempt === 0) {
-        const retry = await deviceApi.setProperties(path, properties);
+        const retry = await deviceApi.setProperties(path, settings);
         assertDeviceMutation(retry.status, `Reconfiguring ${assignment.block.name}`);
       }
     }
@@ -965,6 +1024,10 @@ async function configureAndVerifyTestRigBlocks(plan: TestRigDevicePlan, subtree:
     if (mismatches.length) {
       throw new Error(`HeadRush did not keep the requested ${mismatches.join(", ")} settings for ${assignment.block.name}. The complete Test Rig could not be verified.`);
     }
+    if (assignment.block.parameters.some((parameter) => /^LightMode2?$/.test(parameter.sourceProperty ?? parameter.id)
+      && parameterDeviceValue(parameter, parameter.value) === false && actual[parameter.sourceProperty ?? parameter.id] === true)) {
+      useAppStore.getState().addDiagnostic({ level: "warning", source: "ToneMod", message: `${assignment.moduleName} is running in Lite mode`, detail: "HeadRush selected Lite to fit the loaded captures and stereo signal path. Full remains the requested preference." });
+    }
   }
 }
 
@@ -980,7 +1043,11 @@ async function applyAndVerifyTestRig(
   // Read the provider-owned file before any ModuleType write. Creating the NAM
   // host in its reserved Test Rig slot resets LoadedClone on some firmware,
   // even though the provider demo screen still shows the selected profile.
-  const captureFile = knownCaptureFile ?? await waitForProviderCaptureFile(plan);
+  const sourceFile = knownCaptureFile ?? await waitForProviderCaptureFile(plan);
+  const captureAssignment = plan.assignments.find((assignment) => assignment.capture);
+  const captureFile = sourceFile && captureAssignment
+    ? { ...sourceFile, path: testRigModulePath(captureAssignment.moduleName) }
+    : sourceFile;
 
   // Create the provider-loaded NAM/IR host at its saved destination before
   // clearing the provider's temporary source slot. This keeps its loaded file
@@ -1001,6 +1068,20 @@ async function applyAndVerifyTestRig(
   // Parameter writes must not allow a late provider/engine event to replace the
   // graph. This second stable read is what makes a successful audition honest.
   await settleTestRigChain(plan, 4);
+
+  const namHosts = plan.assignments.filter((assignment) => isNamModule(assignment.moduleName));
+  const activeNamLanes = namHosts.reduce((count, assignment) => count + (assignment.block.parameters.some((parameter) =>
+    (parameter.sourceProperty ?? parameter.id) === "Doubling" && parameterDeviceValue(parameter, parameter.value) === true) ? 2 : 1), 0);
+  if (activeNamLanes > 2) {
+    // The raw API accepts Full even when the engine disables that control.
+    // Confirm the final graph is within the measured four-file Lite limit.
+    for (const assignment of namHosts) {
+      const host = await deviceApi.properties(testRigModulePath(assignment.moduleName));
+      if (host.LightMode !== true || (host.Doubling === true && host.LightMode2 !== true)) {
+        throw new Error("HeadRush did not retain Lite mode for every NAM capture. More than two A2 captures require Lite mode.");
+      }
+    }
+  }
 
   const capture = plan.assignments.find((assignment) => assignment.capture);
   if (!capture || !captureFile) return null;
@@ -1359,7 +1440,7 @@ export function mergePersistedAppState(persisted: unknown, current: AppState): A
   const testRigs = repairPersistedTestRigs(migrateSeededTestRigSounds(savedTestRigs));
   const savedTestRigSets = Array.isArray(saved.testRigSets) ? saved.testRigSets.filter((setlist) => isRecord(setlist) && Array.isArray(setlist.rigIds)) as ToneTestSet[] : null;
   const favoriteRigIds = Array.isArray(saved.favoriteRigIds) ? saved.favoriteRigIds.filter((rigId): rigId is string => typeof rigId === "string") : current.favoriteRigIds;
-  const preferences = isRecord(saved.preferences) ? { ...current.preferences, ...saved.preferences as Partial<Preferences> } : current.preferences;
+  const preferences = isRecord(saved.preferences) ? { ...current.preferences, ...saved.preferences as Partial<Preferences>, theme: normalizeThemePreference(saved.preferences.theme) } : current.preferences;
   return {
     ...current,
     ...saved,
@@ -1402,7 +1483,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   performanceTunerActive: false,
   preferences: {
     address: "headrushflexprime.local", writeMode: "immediate", firstWriteResolved: false,
-    density: "comfortable", reduceMotion: false, highContrast: false, keepAwake: true, autoBackup: true,
+    density: "comfortable", theme: "dark", reduceMotion: false, highContrast: false, keepAwake: true, autoBackup: true,
     autoDiscovery: true, autoReconnect: true, confirmRigReplacement: true, keepHistory: true,
   },
   rigs: [],
@@ -1800,12 +1881,25 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
   selectBlock: (selectedBlockId) => set({ selectedBlockId }),
   updateParameter: (blockId, parameterId, value) => {
     const state = get();
-    const rig = currentRig(state);
+    const rig = state.liveSnapshot?.rig ?? currentRig(state);
     const block = rig.blocks.find((item) => item.id === blockId);
     const param = block?.parameters.find((item) => item.id === parameterId);
-    if (!block || !param) return;
+    if (!block || !param || param.writable === false) return;
     const historyBefore = cloneRig(rig);
     const deviceValue = parameterDeviceValue(param, value);
+    const property = param.sourceProperty ?? parameterId;
+    if (isNamModule(block.name) || isNamModule(block.model)) {
+      const reflected = block.sourcePath ? state.liveSubtree?.[block.sourcePath]?.value : undefined;
+      if (Array.isArray(reflected?.disabled) && reflected.disabled.includes(property)) return;
+      if (/^LightMode2?$/.test(property) && deviceValue === false) {
+        const files = rig.blocks.filter((candidate) => !candidate.empty && (isNamModule(candidate.name) || isNamModule(candidate.model)))
+          .reduce((count, candidate) => count + (candidate.doubled || candidate.parameters.some((parameter) => (parameter.sourceProperty ?? parameter.id) === "Doubling" && parameterDeviceValue(parameter, parameter.value) === true) ? 2 : 1), 0);
+        if (files > 2) {
+          get().addDiagnostic({ level: "warning", source: "Rig Editor", message: "This rig requires NAM A2 Lite", detail: "HeadRush 5.2 supports two A2 Full captures or up to four A2 Lite captures across two doubled hosts." });
+          return;
+        }
+      }
+    }
     const write: PendingWrite = { id: id(), path: block.sourcePath ?? "/Evil/Engine/Patch/Rig", property: param.sourceProperty ?? parameterId, previous: param.rawValue ?? param.value, value: deviceValue, createdAt: new Date().toISOString() };
     const patchRig = (target: Rig): Rig => ({ ...target, blocks: target.blocks.map((b) => b.id !== blockId ? b : { ...b, parameters: b.parameters.map((p) => p.id === parameterId ? { ...p, value } : p) }) });
     set((s) => ({
@@ -1870,9 +1964,27 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     const historyBefore = cloneRig(get().liveSnapshot?.rig ?? currentRig(get()));
     const slot = Math.max(0, Math.min(13, block.slot));
     if (!block.moduleTypeId) throw new Error(`No reflected module type for ${block.name}`);
-    await deviceApi.callMethod("/Evil/Engine/Patch/Chain", "setModuleTypeInternal", [slot, block.moduleTypeId]);
+    let moduleTypeId = block.moduleTypeId;
+    if (isNamModule(block.name) || isNamModule(block.model)) {
+      const reflectedTypes = get().liveSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
+      if (Array.isArray(reflectedTypes)) {
+        const used = new Set(historyBefore.blocks.filter((candidate) => candidate.slot !== slot && !candidate.empty).map((candidate) => candidate.moduleTypeId));
+        const available = namModules(reflectedTypes.map(String)).filter((module) => !used.has(module.moduleTypeId));
+        const selected = available.find((module) => module.moduleTypeId === moduleTypeId) ?? available[0];
+        if (!selected) throw new Error("All NAM hosts are in use. Enable doubling on an existing NAM host to load a second A2 file.");
+        moduleTypeId = selected.moduleTypeId;
+      }
+      await setChainModule(slot, moduleTypeId);
+    } else {
+      const response = await deviceApi.callMethod("/Evil/Engine/Patch/Chain", "setModuleTypeInternal", [slot, moduleTypeId]);
+      assertDeviceMutation(response.status, `Adding ${block.name}`);
+    }
     set({ selectedBlockId: `slot-${slot + 1}` });
     await get().refreshPage("editor", "manual");
+    if (deviceApi.isNative() && (isNamModule(block.name) || isNamModule(block.model))) {
+      const chain = chainModuleTypeIds(await deviceApi.properties(TEST_RIG_CHAIN_PATH));
+      if (chain[slot] !== moduleTypeId) throw new Error("HeadRush did not keep the requested NAM host. Check the rig's NAM model and DSP limits.");
+    }
     const historyAfter = get().liveSnapshot?.rig ?? currentRig(get()); appendHistory(set, historyBefore.id, historyBefore, historyAfter, `Added ${block.name} to slot ${slot + 1}`);
     get().addDiagnostic({ level: "success", source: "Rig Editor", message: `Added ${block.name} to slot ${slot + 1}` });
   },
@@ -2123,7 +2235,10 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       const results = await Promise.all([deviceApi.fetchTone3000Models(tone.remoteId, 2), deviceApi.fetchTone3000Models(tone.remoteId, 1)]);
       if (requestSerial !== toneModelRequestSerial) return;
       const models = [...new Map([...mapTone3000Models(results[0], "A2"), ...mapTone3000Models(results[1], "A1")].map((model) => [model.id, model])).values()];
-      set((state) => ({ toneModels: { ...state.toneModels, [tone.id]: models }, selectedToneModelId: models.some((model) => model.id === state.selectedToneModelId) ? state.selectedToneModelId : models[0]?.id ?? null, toneModelLoading: false, toneModelError: models.length ? null : "This Tone3000 group has no Flex Prime-compatible model." }));
+      set((state) => {
+        const rig = state.testRigs.find((item) => item.id === state.selectedTestRigId);
+        return { toneModels: { ...state.toneModels, [tone.id]: models }, selectedToneModelId: selectPreferredNamModel(models, rig?.namPreference, rig?.namOtherModel, state.selectedToneModelId)?.id ?? null, toneModelLoading: false, toneModelError: models.length ? null : "This Tone3000 group has no Flex Prime-compatible model." };
+      });
     } catch (error) { if (requestSerial === toneModelRequestSerial) set({ toneModelLoading: false, toneModelError: deviceErrorMessage(error) }); }
   },
   toggleFavoriteTone: (toneId) => set((state) => ({ favoriteToneIds: state.favoriteToneIds.includes(toneId) ? state.favoriteToneIds.filter((id) => id !== toneId) : [...state.favoriteToneIds, toneId] })),
@@ -2136,11 +2251,58 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => state.testRigs.some((rig) => rig.id === selectedTestRigId) ? { selectedTestRigId } : {});
     scheduleTestRigSync(get, 120);
   },
-  updateTestRigDetails: (patch) => set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
-    ...rig,
-    name: patch.name?.trim() || rig.name,
-    description: patch.description?.trim() || rig.description,
-  }) })),
+  updateTestRigDetails: (patch) => {
+    set((state) => {
+      const testRigs = state.testRigs.map((rig) => {
+        if (rig.id !== state.selectedTestRigId) return rig;
+        const next = { ...rig, ...patch, name: patch.name?.trim() || rig.name, description: patch.description?.trim() || rig.description };
+        if (patch.namPreference === "nam2" || patch.namPreference === "nam2-lite") {
+          const lite = patch.namPreference === "nam2-lite";
+          next.blocks = next.blocks.map((block) => block.name !== CAPTURE_SLOT_NAME ? block : { ...block, parameters: block.parameters.map((parameter) => {
+            if ((parameter.sourceProperty ?? parameter.id) !== "LightMode" || parameter.writable === false) return parameter;
+            const choiceIndex = parameter.choiceValues?.indexOf(lite) ?? -1;
+            return { ...parameter, value: choiceIndex >= 0 && parameter.choices ? parameter.choices[choiceIndex] : lite };
+          }) });
+        }
+        if (patch.namInstance !== undefined && (!Number.isInteger(patch.namInstance) || patch.namInstance < 1)) next.namInstance = rig.namInstance;
+        if (patch.captureSlot !== undefined) {
+          const marker = rig.blocks.find((block) => block.name === CAPTURE_SLOT_NAME);
+          const target = rig.blocks.find((block) => block.slot === patch.captureSlot);
+          if (!marker || !Number.isInteger(patch.captureSlot) || patch.captureSlot < 1 || patch.captureSlot > 12
+            || patch.captureSlot === 3 || patch.captureSlot === 7 || (target && ["input", "output"].includes(target.category))) {
+            next.captureSlot = rig.captureSlot;
+          } else {
+            next.blocks = next.blocks.map((block) => block.id === marker.id ? { ...block, slot: patch.captureSlot! }
+              : target && block.id === target.id ? { ...block, slot: marker.slot } : block).sort((left, right) => left.slot - right.slot);
+          }
+        }
+        if (patch.namInstance !== undefined) {
+          const reflected = state.liveSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
+          const hosts = namModules(Array.isArray(reflected) ? reflected.map(String) : []);
+          const selectedHost = hosts.find((host) => host.instance === next.namInstance);
+          if (selectedHost) {
+            const used = new Set([selectedHost.moduleTypeId]);
+            next.blocks = next.blocks.map((block) => {
+              if (block.name === CAPTURE_SLOT_NAME) return { ...block, sourcePath: testRigModulePath(selectedHost.name) };
+              if (!isNamModule(block.model) && !isNamModule(block.name)) return block;
+              const available = hosts.filter((host) => !used.has(host.moduleTypeId));
+              const host = available.find((candidate) => candidate.name === block.model) ?? available[0];
+              if (!host) return block;
+              used.add(host.moduleTypeId);
+              const sourcePath = testRigModulePath(host.name);
+              return { ...block, name: isNamModule(block.name) ? host.name : block.name, model: host.name, moduleTypeId: host.moduleTypeId, sourcePath,
+                parameters: block.parameters.map((parameter) => ({ ...parameter, deviceObjectPath: sourcePath })) };
+            });
+          }
+        }
+        return next;
+      });
+      const selected = testRigs.find((rig) => rig.id === state.selectedTestRigId);
+      const models = state.selectedToneId ? state.toneModels[state.selectedToneId] ?? [] : [];
+      return { testRigs, ...(models.length ? { selectedToneModelId: selectPreferredNamModel(models, selected?.namPreference, selected?.namOtherModel, state.selectedToneModelId)?.id ?? null } : {}) };
+    });
+    scheduleTestRigSync(get);
+  },
   toggleTestRigBlock: (blockId) => {
     set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
       ...rig,
@@ -2160,8 +2322,8 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           return { ...block, sourcePath: patch.sourcePath ?? block.sourcePath, parameters: merged, enabled: true };
         }
         const updated = { ...block, ...patch, parameters: patch.parameters ? mergeTestRigParameters(block.parameters, patch.parameters) : block.parameters, id: block.id, slot: block.slot };
-        return testRigSlotAllowsBlock(block.slot, updated) ? updated : block;
-      })),
+        return testRigSlotAllowsBlock(block.slot, updated, rig.captureSlot) ? updated : block;
+      }), rig.captureSlot),
     }) }));
     scheduleTestRigSync(get);
   },
@@ -2170,19 +2332,45 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
       ...rig,
       blocks: rig.blocks.map((block) => block.id !== blockId ? block : {
         ...block,
-        parameters: block.parameters.map((parameter) => parameter.id === parameterId
-          && parameter.writable !== false
-          && !(block.name === CAPTURE_SLOT_NAME && isProtectedCaptureFileParameter(parameter))
-          ? { ...parameter, value }
-          : parameter),
+        parameters: block.parameters.map((parameter) => {
+          const property = parameter.sourceProperty ?? parameter.id;
+          if (parameter.id === parameterId && parameter.writable !== false
+            && !(block.name === CAPTURE_SLOT_NAME && isProtectedCaptureFileParameter(parameter))) return { ...parameter, value };
+          const edited = block.parameters.find((candidate) => candidate.id === parameterId);
+          if (edited && (edited.sourceProperty ?? edited.id) === "Doubling" && parameterDeviceValue(edited, value) === true
+            && isNamModule(block.model) && /2$/.test(property) && !/^(?:FileMissing|CalibrateInput)/.test(property)) {
+            const lanes = rig.blocks.filter((candidate) => candidate.name === CAPTURE_SLOT_NAME || isNamModule(candidate.model))
+              .reduce((count, candidate) => count + (candidate.id === block.id || namParameterValue(candidate.parameters, "Doubling") === true ? 2 : 1), 0);
+            return { ...parameter, writable: property === "LightMode2" && lanes > 2 ? false : true };
+          }
+          return parameter;
+        }),
       }),
     }) }));
     scheduleTestRigSync(get, 260);
   },
   addTestRigBlock: (block, targetSlot) => {
+    const state = get();
+    const rig = state.testRigs.find((item) => item.id === state.selectedTestRigId);
+    const reflected = state.liveSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
+    if (rig && Array.isArray(reflected) && (isNamModule(block.model) || isNamModule(block.name))) {
+      const hosts = namModules(reflected.map(String));
+      const used = new Set(rig.blocks.filter((candidate) => candidate.slot !== targetSlot && candidate.id !== block.id)
+        .map((candidate) => candidate.name === CAPTURE_SLOT_NAME ? hosts.find((host) => host.instance === (rig.namInstance ?? 1))?.moduleTypeId
+          : hosts.find((host) => host.name === candidate.model)?.moduleTypeId));
+      const available = hosts.filter((host) => !used.has(host.moduleTypeId));
+      const host = available.find((candidate) => candidate.name === block.model) ?? available[0];
+      if (!host) {
+        get().addDiagnostic({ level: "warning", source: "ToneMod", message: "All NAM hosts are in use", detail: "Use doubling on an existing NAM host to add its second A2 capture." });
+        return;
+      }
+      const sourcePath = testRigModulePath(host.name);
+      block = { ...block, name: isNamModule(block.name) ? host.name : block.name, model: host.name, moduleTypeId: host.moduleTypeId, sourcePath,
+        parameters: block.parameters.map((parameter) => ({ ...parameter, deviceObjectPath: sourcePath })) };
+    }
     set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : {
       ...rig,
-      blocks: targetSlot === undefined ? addBlockToTestRig(rig.blocks, block) : placeTestRigBlock(rig.blocks, block, targetSlot),
+      blocks: targetSlot === undefined ? addBlockToTestRig(rig.blocks, block, rig.captureSlot) : placeTestRigBlock(rig.blocks, block, targetSlot, rig.captureSlot),
     }) }));
     scheduleTestRigSync(get);
   },
@@ -2190,12 +2378,17 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     set((state) => ({ testRigs: state.testRigs.map((rig) => {
       if (rig.id !== state.selectedTestRigId) return rig;
       const block = rig.blocks.find((item) => item.id === blockId);
-      return block ? { ...rig, blocks: placeTestRigBlock(rig.blocks, block, targetSlot) } : rig;
+      return block ? { ...rig, blocks: placeTestRigBlock(rig.blocks, block, targetSlot, rig.captureSlot) } : rig;
     }) }));
     scheduleTestRigSync(get);
   },
   duplicateTestRigBlock: (blockId) => {
-    set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : { ...rig, blocks: duplicateTestRigBlock(rig.blocks, blockId, `test-copy-${id()}`) }) }));
+    const source = get().testRigs.find((rig) => rig.id === get().selectedTestRigId)?.blocks.find((block) => block.id === blockId);
+    if (source && source.name !== CAPTURE_SLOT_NAME && (isNamModule(source.model) || isNamModule(source.name))) {
+      get().addTestRigBlock({ ...structuredClone(source), id: `test-copy-${id()}`, name: `${source.name} copy` });
+      return;
+    }
+    set((state) => ({ testRigs: state.testRigs.map((rig) => rig.id !== state.selectedTestRigId ? rig : { ...rig, blocks: duplicateTestRigBlock(rig.blocks, blockId, `test-copy-${id()}`, rig.captureSlot) }) }));
     scheduleTestRigSync(get);
   },
   removeTestRigBlock: (blockId) => {
@@ -2219,7 +2412,7 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
         ? storedAudition.tone
         : state.tones.find((item) => item.id === state.auditioningToneId);
       const rig = repairedTestRigs.find((item) => item.id === state.selectedTestRigId);
-      const validation = rig ? validateTestRig(rig.blocks) : null;
+      const validation = rig ? validateTestRig(rig.blocks, rig.captureSlot) : null;
       if (!tone) throw new Error("The active audition item is no longer available in the catalogue cache.");
       if (!rig || !validation?.valid) throw new Error(validation?.errors[0] ?? "The selected Test Rig is unavailable.");
       set({ testRigSyncBusy: true, testRigSyncError: null });
@@ -2236,6 +2429,9 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
           remoteKind: tone.remoteKind,
           moduleTypes: moduleTypes.map(String),
           currentModuleTypeIds,
+          namInstance: rig.namInstance,
+          namPreference: rig.namPreference,
+          captureSlot: rig.captureSlot,
         });
         if (!plan.complete) throw new Error(plan.message);
         const captureFile = await applyAndVerifyTestRig(plan, currentModuleTypeIds, state.liveSubtree, storedAudition?.captureFile);
@@ -2296,17 +2492,25 @@ export const useAppStore = create<AppState>()(persist((set, get) => ({
     const repairedTestRigs = repairPersistedTestRigs(stateBeforeAudition.testRigs);
     set({ testRigs: repairedTestRigs });
     const rig = repairedTestRigs.find((item) => item.id === stateBeforeAudition.selectedTestRigId);
-    const validation = rig ? validateTestRig(rig.blocks) : null;
+    const validation = rig ? validateTestRig(rig.blocks, rig.captureSlot) : null;
 
     let model: ToneModel | undefined;
     if (tone.source === "Tone3000") {
       if (!stateBeforeAudition.toneModels[tone.id]) await get().loadToneModels(tone);
       const models = get().toneModels[tone.id] ?? [];
-      model = models.find((item) => item.id === get().selectedToneModelId) ?? models[0];
+      model = selectPreferredNamModel(models, rig?.namPreference, rig?.namOtherModel, get().selectedToneModelId);
       if (!model) {
         const message = get().toneModelError ?? "Choose a compatible Tone3000 model before auditioning.";
         set({ auditionError: message });
         throw new Error(message);
+      }
+      if (/^a1(?:\b|[_ -])/i.test(model.architecture) && rig) {
+        const namBlocks = rig.blocks.filter((block) => block.name === CAPTURE_SLOT_NAME || isNamModule(block.model) || isNamModule(block.name));
+        if (namBlocks.length > 1 || namBlocks.some((block) => namParameterValue(block.parameters, "Doubling") === true)) {
+          const message = "NAM A1 supports one native capture per rig. Choose an A2 model, or remove the additional NAM host and turn off doubling.";
+          set({ auditionError: message });
+          throw new Error(message);
+        }
       }
     }
 

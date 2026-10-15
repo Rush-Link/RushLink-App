@@ -50,6 +50,10 @@ export const testRigNamControls = (): Parameter[] => [
   normalizedParameter("Treble", "Treble", 5, 0, 10),
   toggle("Normalize", "Normalize", true),
   toggle("LightMode", "Lite Mode", false),
+  choice("OutputMode", "Output mode", "Normalize", ["Raw", "Calibrated", "Normalize"], [0, 1, 2]),
+  toggle("CalibrateInput", "Calibrate input", false),
+  { ...toggle("Doubling", "Doubling", false), value: "Single", choices: ["Single", "Double"], choiceValues: [false, true] },
+  { ...toggle("DoubleMode", "Doubling mode", false), value: "Stereo", choices: ["Stereo", "Switch"], choiceValues: [false, true] },
 ];
 
 const makeBlock = (id: string, name: string, model: string, category: RigBlock["category"], color: string, slot: number, enabled = true, controls?: Parameter[]): RigBlock => ({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testRigTemplates } from "../data/demo-data";
 import type { HeadRushObject } from "./types";
-import { buildTestRigDevicePlan, testRigBlockProperties, testRigModulePath, testRigPlanMismatches } from "./tone-audition-chain";
+import { buildTestRigDevicePlan, testRigBlockProperties, testRigModulePath, testRigNamFileBindings, testRigPlanMismatches } from "./tone-audition-chain";
 
 const moduleTypes = Array.from({ length: 60 }, () => "");
 moduleTypes[0] = "Empty Slot";
@@ -161,6 +161,42 @@ describe("ToneMod temporary Test Rig planning", () => {
     expect(plan.complete).toBe(true);
   });
 
+  it("keeps the provider file source distinct from the selected audition DSP host", () => {
+    const names = [...moduleTypes, "Neural Amp Modeler 2"];
+    const blocks = structuredClone(testRigTemplates[0].blocks);
+    blocks.push({ id: "extra-nam", name: "Extra NAM", model: "Neural Amp Modeler", category: "clone", color: "#fff", enabled: true, slot: 2, parameters: [] });
+    const plan = buildTestRigDevicePlan({ blocks, captureType: "amp", source: "Tone3000", moduleTypes: names, currentModuleTypeIds: [0, 0, 0, 0, 19, 9], namInstance: 2, captureSlot: 8, namPreference: "nam2-lite" });
+    expect(plan).toMatchObject({ complete: true, captureSlot: 8, captureSourceModuleName: "Neural Amp Modeler", captureSourceModuleTypeId: 19 });
+    expect(plan.assignments.find((assignment) => assignment.capture)).toMatchObject({ slot: 8, moduleName: "Neural Amp Modeler 2" });
+    expect(plan.assignments.find((assignment) => assignment.capture)?.block.parameters).toContainEqual(expect.objectContaining({ id: "LightMode", value: true }));
+    expect(plan.assignments.find((assignment) => assignment.block.id === "extra-nam")).toMatchObject({ slot: 2, moduleName: "Neural Amp Modeler", enabled: true });
+  });
+
+  it("fails an unsupported host choice and a third independent NAM without substituting another clone", () => {
+    const names = [...moduleTypes, "Neural Amp Modeler 2", "Amp Clone"];
+    expect(buildTestRigDevicePlan({ blocks: testRigTemplates[0].blocks, captureType: "amp", source: "Tone3000", moduleTypes, currentModuleTypeIds: [19], namInstance: 2 })).toMatchObject({ complete: false, message: expect.stringMatching(/host 2 is not exposed/) });
+    const blocks = structuredClone(testRigTemplates[0].blocks);
+    for (const [index, slot] of [2, 8].entries()) blocks.push({ id: `extra-${index}`, name: `Stacked NAM ${index}`, model: "Neural Amp Modeler", category: "clone", color: "#fff", enabled: true, slot, parameters: [] });
+    const plan = buildTestRigDevicePlan({ blocks, captureType: "amp", source: "Tone3000", moduleTypes: names, currentModuleTypeIds: [19, 9] });
+    expect(plan).toMatchObject({ complete: false, applied: false, skippedBlocks: ["Stacked NAM 1"] });
+    expect(plan.assignments.some((assignment) => assignment.moduleName === "Amp Clone")).toBe(false);
+  });
+
+  it("forces all four doubled NAM lanes to Lite even when the saved preference requests Full", () => {
+    const names = [...moduleTypes, "Neural Amp Modeler 2"];
+    const blocks = structuredClone(testRigTemplates[0].blocks);
+    const capture = blocks.find((block) => block.name === "Capture slot")!;
+    capture.parameters = capture.parameters.filter((parameter) => !["Doubling", "LightMode2"].includes(parameter.id));
+    capture.parameters.push({ id: "Doubling", label: "Doubling", value: true }, { id: "LightMode2", label: "Mode 2", value: false });
+    blocks.push({ id: "extra-nam", name: "Neural Amp Modeler 2", model: "Neural Amp Modeler 2", category: "clone", color: "#fff", enabled: true, slot: 2, parameters: [{ id: "Doubling", label: "Doubling", value: true }, { id: "LightMode", label: "Mode", value: false }, { id: "LightMode2", label: "Mode 2", value: false }] });
+    const plan = buildTestRigDevicePlan({ blocks, captureType: "amp", source: "Tone3000", moduleTypes: names, currentModuleTypeIds: [19, 9], namPreference: "nam2" });
+    for (const assignment of plan.assignments.filter((assignment) => assignment.moduleName.startsWith("Neural Amp Modeler"))) {
+      expect(assignment.block.parameters).toEqual(expect.arrayContaining([expect.objectContaining({ id: "LightMode", value: true }), expect.objectContaining({ id: "LightMode2", value: true })]));
+    }
+    expect(plan.message).toMatch(/All 4 NAM lanes use Lite/);
+    expect(capture.parameters.find((parameter) => parameter.id === "LightMode2")?.value).toBe(false);
+  });
+
   it("fails honestly when a second DSP instance is unavailable", () => {
     const singleInstanceCatalogue = [...moduleTypes]; singleInstanceCatalogue[46] = "";
     const blocks = structuredClone(testRigTemplates[0].blocks);
@@ -246,6 +282,38 @@ describe("ToneMod temporary Test Rig planning", () => {
     expect(properties.Input).toBeCloseTo(.65);
     expect(properties.Output).toBeCloseTo(.6);
     expect(properties).not.toHaveProperty("LoadedClone");
+  });
+
+  it("writes a doubled capture host's independent second file and leaves the provider primary file protected", () => {
+    const block = structuredClone(testRigTemplates[0].blocks.find((candidate) => candidate.name === "Capture slot")!);
+    block.parameters = block.parameters.filter((parameter) => parameter.id !== "Doubling");
+    block.parameters.push({ id: "Doubling", label: "Doubling", value: true });
+    for (const property of ["LoadedClone", "LoadedClone2"]) block.parameters.push({ id: property, label: property, value: `Neural Amp Modeler/${property}.nam`, deviceFile: { fileType: 9, startPath: "Neural Amp Modeler" } });
+    const object: HeadRushObject = { meta: { properties: { On: { type: "boolean" }, Doubling: { type: "boolean" }, LoadedClone: { type: "string", "x-options": { fileType: 9, startPath: "Neural Amp Modeler" } }, LoadedClone2: { type: "string", "x-options": { fileType: 9, startPath: "Neural Amp Modeler" } } } }, value: { On: true, Doubling: true, LoadedClone: "", LoadedClone2: "" } };
+    expect(testRigNamFileBindings(block, object)).toEqual({ LoadedClone2: "Neural Amp Modeler/LoadedClone2.nam" });
+    expect(testRigBlockProperties(block, object, true)).toEqual({ On: true, Doubling: true, LoadedClone2: "Neural Amp Modeler/LoadedClone2.nam" });
+    block.parameters.find((parameter) => parameter.id === "Doubling")!.value = false;
+    expect(testRigNamFileBindings(block, object)).toEqual({});
+    expect(testRigBlockProperties(block, object, true)).not.toHaveProperty("LoadedClone2");
+    block.name = "Neural Amp Modeler";
+    expect(testRigNamFileBindings(block, object)).toEqual({ LoadedClone: "Neural Amp Modeler/LoadedClone.nam" });
+    expect(testRigNamFileBindings(block, { meta: { properties: {} } })).toEqual({});
+  });
+
+  it("translates legacy Normalize to 5.2 OutputMode without overriding an explicit mode", () => {
+    const block = structuredClone(testRigTemplates[0].blocks.find((candidate) => candidate.name === "Capture slot")!);
+    block.parameters = [{ id: "Normalize", label: "Normalize", value: true }];
+    const object: HeadRushObject = { meta: { properties: { On: { type: "boolean" }, OutputMode: { type: "integer", "x-options": { strings: ["Raw", "Calibrated", "Normalize"] } } } }, value: { On: true, OutputMode: 0 } };
+    expect(testRigBlockProperties(block, object, true)).toEqual({ On: true, OutputMode: 2 });
+    block.parameters.push({ id: "OutputMode", label: "Output mode", value: "Calibrated" });
+    expect(testRigBlockProperties(block, object, true)).toEqual({ On: true, OutputMode: 1 });
+    object.value!.disabled = ["OutputMode"];
+    expect(testRigBlockProperties(block, object, true)).toEqual({ On: true });
+    const legacyObject: HeadRushObject = { meta: { properties: { On: { type: "boolean" }, Normalize: { type: "boolean" } } }, value: { On: true, Normalize: false } };
+    block.parameters = [{ id: "OutputMode", label: "Output mode", value: "Normalize" }];
+    expect(testRigBlockProperties(block, legacyObject, true)).toEqual({ On: true, Normalize: true });
+    block.parameters.push({ id: "Normalize", label: "Normalize", value: false });
+    expect(testRigBlockProperties(block, legacyObject, true)).toEqual({ On: true, Normalize: false });
   });
 
   it("does not invent properties missing from the reflected device schema", () => {

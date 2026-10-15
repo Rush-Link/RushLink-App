@@ -417,7 +417,7 @@ describe("ToneMod Test Rig Studio UI", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.querySelector(".tp-editor-slots")?.children).toHaveLength(14);
     expect(screen.getByText("Compatible blocks")).toBeInTheDocument();
-    expect(dialog.querySelector('[aria-label="Fixed Test Rig slot roles"]')).toHaveTextContent("DRIVE");
+    expect(dialog.querySelector('[aria-label="Test Rig slot roles"]')).toHaveTextContent("DRIVE");
     expect(screen.getByRole("button", { name: /^Favourites$/i })).toBeInTheDocument();
     expect(container.querySelector(".tp-config-chain--slots")?.children).toHaveLength(14);
   });

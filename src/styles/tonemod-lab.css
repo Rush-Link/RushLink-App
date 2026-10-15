@@ -232,6 +232,7 @@
 @media(max-width:680px){.tp-full-editor__identity{grid-template-columns:1fr}.tp-editor-validity{grid-column:1}.tp-editor-slots{grid-template-columns:repeat(2,minmax(105px,1fr))}.tp-editor-results{grid-template-columns:repeat(2,minmax(0,1fr))}.tp-editor-inspector .tp-parameter-grid{grid-template-columns:1fr}.tp-chain-heading-actions{align-items:flex-end;flex-direction:column}.tp-editor-sync{max-width:55vw}.tp-slot-role-strip{grid-template-columns:1fr 1fr}.tp-slot-role-strip b{display:none}}
 
 /* Drive, NAM and IR remain fixed; amps stay movable to preserve FX order. */
+.tp-nam-settings{padding:13px;border:1px solid #2d3a4d;border-radius:12px;background:linear-gradient(140deg,rgba(31,28,49,.7),rgba(10,18,26,.95))}.tp-nam-settings>header{display:flex;align-items:center;gap:9px;color:#b89aea}.tp-nam-settings>header span{display:grid;gap:3px}.tp-nam-settings strong{color:#e2e8f1;font-size:13px}.tp-nam-settings small,.tp-nam-settings p{color:#91a1b6;font-size:12px;line-height:1.5}.tp-nam-settings__fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:12px}.tp-nam-settings__fields label{display:grid;gap:6px;min-width:0;color:#b8c5d5;font-size:12px}.tp-nam-settings p{margin:10px 0 0}.tp-nam-settings .ui-select,.tp-nam-settings .ui-input{width:100%;min-width:0}
 .tp-slot-role-strip{grid-template-columns:repeat(3,minmax(0,1fr))}
 .tp-slot-role-strip>span:nth-child(2){--role-color:#9f82ea}
 .tp-slot-role-strip>span:nth-child(3){--role-color:#62cbdc}

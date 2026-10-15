@@ -1,10 +1,11 @@
 [package]
 name = "rushlink"
-version = "0.1.2"
-description = "Unofficial HeadRush desktop companion"
-authors = ["RushLink"]
+version = "0.1.3"
+description = "RushLink by Cygma Audio — unofficial HeadRush desktop companion"
+authors = ["Cygma Audio"]
 edition = "2021"
-license-file = "../LICENSE"
+license = "MIT"
+repository = "https://github.com/Rush-Link/RushLink-App"
 
 [lib]
 name = "rushlink_lib"

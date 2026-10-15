@@ -16,19 +16,39 @@ for (const width of [320, 390, 430]) {
     const bounds = (await track.boundingBox())!;
     const session = await page.context().newCDPSession(page);
     const y = bounds.y + Math.min(65, bounds.height / 2);
+    await track.evaluate(element => {
+      element.dataset.nativeScrollEnded = "false";
+      element.addEventListener("scrollend", () => { element.dataset.nativeScrollEnded = "true"; }, { once: true });
+    });
     await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: width - 45, y }] });
     for (let step = 1; step <= 8; step++) {
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
       await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: width - 45 - (width - 90) * step / 8, y }] });
     }
     await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    // Reaching the track's edge does not mean the native fling has finished;
+    // Chromium can consume the next tap until it emits scrollend.
+    await expect(track).toHaveAttribute("data-native-scroll-ended", "true");
     await expect(pager.getByRole("button", { name: "Show Shortcuts", exact: true })).toHaveAttribute("aria-current", "page");
     await expect.poll(() => track.evaluate(element => Math.abs(element.scrollLeft - 2 * element.clientWidth))).toBeLessThan(2);
     await page.screenshot({ path: testInfo.outputPath("phone-paged-overview.png") });
     await pager.getByRole("button", { name: "Show Current rig", exact: true }).tap();
+    await expect(pager.getByRole("button", { name: "Show Current rig", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect.poll(() => track.evaluate(element => element.scrollLeft)).toBeLessThan(2);
+    // A taller phone can fit the current rig without scrolling. Exercise the
+    // same content on a short phone before checking its vertical scroll area.
+    await page.setViewportSize({ width, height: 568 });
     const first = pager.locator(".phone-pager__page").first();
     await expect.poll(() => first.evaluate(element => element.scrollHeight - element.clientHeight)).toBeGreaterThan(0);
     await first.evaluate(element => element.scrollTo({ top: element.scrollHeight }));
     await expect.poll(() => first.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    await testInfo.attach("phone-vertical-scroll", {
+      body: JSON.stringify(await first.evaluate(element => ({
+        viewportHeight: innerHeight, clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight, scrollTop: element.scrollTop,
+      }))), contentType: "application/json",
+    });
+    await page.setViewportSize({ width, height: 740 });
     await page.getByRole("button", { name: "Open navigation", exact: true }).tap();
     const menu = page.locator(".sidebar");
     await expect(menu).toBeVisible();

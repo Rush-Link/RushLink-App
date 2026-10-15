@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://rush-link.github.io/about.html#contact
+    about: Contact Cygma Audio privately; follow the reporting guidance in SECURITY.md.

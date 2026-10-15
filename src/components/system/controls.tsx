@@ -76,6 +76,7 @@ function AdaptiveChoice({ parameter, onChange }: { parameter: Parameter; onChang
 }
 
 export function ParameterControl({ parameter, onChange, onPreview, compact = false, choiceStyle = "select" }: { parameter: Parameter; onChange: (value: Parameter["value"]) => void; onPreview?: (value: Parameter["value"]) => Promise<void> | void; compact?: boolean; choiceStyle?: "select" | "adaptive" }) {
+  if (parameter.writable === false) return <fieldset className="parameter-readonly" disabled aria-label={`${parameter.label} is controlled by the device`}><ParameterControl parameter={{ ...parameter, writable: true }} compact={compact} choiceStyle={choiceStyle} onChange={() => undefined}/></fieldset>;
   if (parameter.deviceFile) return <DeviceFileControl parameter={parameter} compact={compact} onChange={onChange} onPreview={onPreview} />;
   if (parameter.choices && choiceStyle === "adaptive") return <AdaptiveChoice parameter={parameter} onChange={onChange}/>;
   if (parameter.choices) {

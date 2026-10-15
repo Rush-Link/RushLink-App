@@ -7,7 +7,7 @@ import { cn } from "../../lib/utils";
 import { Button, IconButton } from "../ui";
 import { ConnectionOrb, CpuIndicator } from "./controls";
 import { preloadPage } from "../../page-loaders";
-import { RushLinkMark } from "./rushlink-mark";
+import { RUSHLINK_BRAND, RushLinkBrand } from "./rushlink-mark";
 import { ShellNavigationContext } from "./shell-navigation";
 import { TABLET_VIEWPORT } from "../../hooks/use-tablet-layout";
 
@@ -123,8 +123,8 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
     <aside className="sidebar" aria-label="Primary navigation" aria-hidden={!deviceReady || mobileViewport && !mobileNavigationOpen || undefined} inert={!deviceReady || mobileViewport && !mobileNavigationOpen || undefined}>
       <div className="brand">
         {tabletViewport ? <button type="button" className="brand__menu" aria-label={collapsed ? "Expand navigation" : "Collapse navigation"} aria-expanded={!collapsed} aria-controls="primary-navigation-menu" title={collapsed ? "Expand navigation" : "Collapse navigation"} onClick={toggleNavigation}>
-          <span className="brand__mark"><RushLinkMark/></span>{collapsed ? <Menu className="brand__menu-glyph" size={15} aria-hidden="true"/> : <ChevronLeft className="brand__menu-glyph" size={15} aria-hidden="true"/>}
-        </button> : <span className="brand__mark"><RushLinkMark title="RushLink"/></span>}
+          <RushLinkBrand/>{collapsed ? <Menu className="brand__menu-glyph" size={15} aria-hidden="true"/> : <ChevronLeft className="brand__menu-glyph" size={15} aria-hidden="true"/>}
+        </button> : <RushLinkBrand/>}
         {!collapsed && <div className="brand__connection" aria-live="polite">
           <span className="brand__connection-name"><ConnectionOrb status={device?.status ?? "offline"}/><strong>{device?.name ?? "Connect HeadRush"}</strong></span>
           <span className="brand__connection-host">{device?.host ?? "No device selected"}</span>
@@ -141,9 +141,9 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
         </button>)}
         <span className="nav-section">{!collapsed && "SYSTEM"}</span>
         {navigation.slice(7).map((item) => <button key={item.id} aria-label={item.label} className={cn(page === item.id && "active")} onPointerEnter={() => preloadPage(item.id)} onFocus={() => preloadPage(item.id)} onClick={() => navigate(item.id)} title={collapsed ? item.label : undefined}><item.icon size={19} /><span>{tabletViewport && collapsed ? item.shortLabel : item.label}</span></button>)}
-        <a className="sidebar__support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" aria-label="Support me on Ko-fi (opens external site)" title="Support me on Ko-fi (opens external site)" onClick={openSupport}>
+        <a className="sidebar__support" href={SUPPORT_URL} target="_blank" rel="noopener noreferrer" aria-label="Support RushLink by Cygma Audio on Ko-fi (opens external site)" title="Support RushLink by Cygma Audio on Ko-fi (opens external site)" onClick={openSupport}>
           <svg className="sidebar__support-logo" width="19" height="19" viewBox="4 6 19 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M6 8h11v7a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5V8Zm11 2h1a3 3 0 0 1 0 6h-1M9 12c0-2 3-2 3 0 0-2 3-2 3 0 0 2-3 4-3 4s-3-2-3-4Z"/></svg>
-          <span className="sidebar__support-label">{tabletViewport && collapsed ? "Support" : "Support me"}</span>
+          <span className="sidebar__support-label">{tabletViewport && collapsed ? "Support" : "Support RushLink"}</span>
           <ExternalLink className="sidebar__support-external" size={14} aria-hidden="true"/>
         </a>
         {supportError && <p className="sidebar__support-error" role="alert">Couldn’t open Ko-fi. Try again, or visit ko-fi.com/mattc_ in your browser.</p>}
@@ -155,7 +155,7 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
     </aside>
     <main className="main">
       <header className="topbar" hidden={tabletViewport} inert={!deviceReady || tabletViewport || undefined}>
-        <IconButton label={mobileNavigationOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileNavigationOpen} aria-controls="primary-navigation-menu" className="mobile-menu" onClick={() => setMobileNavigationOpen((open) => !open)}>{mobileViewport ? <><RushLinkMark/><ChevronDown size={15}/></> : <Menu size={19}/>}</IconButton>
+        <IconButton label={mobileNavigationOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileNavigationOpen} aria-controls="primary-navigation-menu" className="mobile-menu" onClick={() => setMobileNavigationOpen((open) => !open)}>{mobileViewport ? <><RushLinkBrand/><ChevronDown size={15}/></> : <Menu size={19}/>}</IconButton>
         <div className="topbar__title"><current.icon size={18} /><span>{current.label}</span></div>
         {mobileViewport && <div className="phone-session-actions">
           {testRigReturn && <IconButton label="Open audition session" onClick={() => navigate("tone-cloud")}><RotateCcw size={17}/></IconButton>}
@@ -176,7 +176,7 @@ export function AppShell({ children, overlay }: { children: ReactNode; overlay?:
         <span><Gauge size={13} /> {device?.latencyMs ?? "—"} ms</span>
         <span><Cpu size={13} /> Engine {live ? `${live.cpuPercent}%` : "—"}</span>
         <span><HardDrive size={13} /> Storage {live ? `${live.storage.usedPercent}%` : "—"}</span>
-        <span className="statusbar__right"><Sparkles size={13} /> RushLink 0.1.2</span>
+        <span className="statusbar__right"><Sparkles size={13} /> {RUSHLINK_BRAND} · 0.1.3</span>
       </footer>
     </main>
   </div></ShellNavigationContext.Provider>;

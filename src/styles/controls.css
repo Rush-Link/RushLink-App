@@ -191,3 +191,4 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+.parameter-readonly{min-width:0;margin:0;padding:0;border:0;opacity:.6}.parameter-readonly>div,.parameter-readonly>label{height:100%}

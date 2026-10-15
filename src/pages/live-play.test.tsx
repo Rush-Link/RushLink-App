@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { actionPalette, defaultLiveLayout, defaultLiveStage, demoRigs } from "../data/demo-data";
-import type { LiveButton } from "../domain/types";
+import type { LiveButton, LiveGesture } from "../domain/types";
 import { deviceApi } from "../services/device-api";
 import { useAppStore } from "../stores/app-store";
 import { filterStagehandPalette, LivePad, LivePlayPage, MultiButtonDeck, PALETTE_CATEGORIES, StageTunerWidget, stagehandPaletteAccent, stagehandPaletteCategory, stagehandPaletteItemKey } from "./live-play";
@@ -55,14 +55,14 @@ describe("StageHand multi-button decks", () => {
 });
 
 describe("StageHand live tuner display", () => {
-  const renderTuner = (onTrigger: ReturnType<typeof vi.fn>) => {
+  const renderTuner = (onTrigger: (gesture?: LiveGesture) => void) => {
     const template = actionPalette.find((item) => item.widget === "tuner")!;
     return render(<LivePad button={{ ...template, id: "tuner-display" } as LiveButton} index={0} editable={false} selected={false} moving={false} spanRows={1} spanColumns={2} gridStyle={{}} dragging={false} dragOver={false} widgetData={widgetData} onSelect={vi.fn()} onTrigger={onTrigger} onWidgetAction={vi.fn()} onDragBegin={vi.fn()} onDragHover={vi.fn()} onDragFinish={vi.fn()} onDragCancel={vi.fn()}/>);
   };
 
   it("toggles the device tuner on a short tap", () => {
     vi.useFakeTimers();
-    const onTrigger = vi.fn();
+    const onTrigger = vi.fn<(gesture?: LiveGesture) => void>();
     const { container, unmount } = renderTuner(onTrigger);
     const tuner = within(container).getByRole("group", { name: /tuner display · tap tuner · hold mute/i });
     fireEvent.pointerDown(tuner, { pointerId: 1, button: 0 });
@@ -76,7 +76,7 @@ describe("StageHand live tuner display", () => {
 
   it("sends the mute gesture after a hold without also toggling the tuner", () => {
     vi.useFakeTimers();
-    const onTrigger = vi.fn();
+    const onTrigger = vi.fn<(gesture?: LiveGesture) => void>();
     const { container, unmount } = renderTuner(onTrigger);
     const tuner = within(container).getByRole("group", { name: /tuner display · tap tuner · hold mute/i });
     fireEvent.pointerDown(tuner, { pointerId: 2, button: 0 });

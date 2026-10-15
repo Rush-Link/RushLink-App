@@ -88,8 +88,11 @@ for (const [short, long] of tabletViewports) {
     await expect(page.getByRole("button", { name: "Edit layout", exact: true })).toBeHidden();
     await expect(page.locator(".live-toolbar button:visible")).toHaveCount(2);
     const toolbar = (await page.locator(".live-toolbar").boundingBox())!;
-    expect(toolbar.height).toBeLessThanOrEqual(44);
+    // Keep touch controls and the readable maker caption in a compact strip.
+    expect(toolbar.height).toBeGreaterThanOrEqual(44);
+    expect(toolbar.height).toBeLessThan(48);
     const board = (await page.locator(".live-board").boundingBox())!;
+    expect(board.y).toBeGreaterThanOrEqual(toolbar.y + toolbar.height - 1);
     expect(board.y + board.height).toBeLessThanOrEqual(short + 1);
     expect(board.height).toBeGreaterThan(short - 60);
     const pad = page.locator(".live-pad:not(.live-pad--empty)").first();

@@ -154,7 +154,8 @@ describe("complete Test Rig parameter confirmation", () => {
     let reads = 0;
     fixture.reads.mockImplementation(async (path) => {
       const values = await read(path);
-      return path === namPath ? { ...values, Output: ++reads === 1 ? .5 : Number(values.Output) + 1e-8 } : values;
+      const configured = fixture.writes.mock.calls.some(([writtenPath, properties]) => writtenPath === namPath && "Output" in properties);
+      return path === namPath && configured ? { ...values, Output: ++reads === 1 ? .5 : Number(values.Output) + 1e-8 } : values;
     });
     const syncing = useAppStore.getState().syncActiveTestRig();
     await vi.runAllTimersAsync();
@@ -276,7 +277,8 @@ describe("ToneMod audition lifecycle", () => {
       call.mock.calls.findIndex(([, method, args]) => method === "setModuleTypeInternal" && args?.[0] === 4 && args?.[1] === 0),
     );
     expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Gray_Comp", expect.objectContaining({ On: true, Sustain: .25, Level: .52 }));
-    expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Neural_Amp_Modeler", expect.objectContaining({ On: true, LoadedClone: "Neural Amp Modeler/Tone 3000/A2 model.nam" }));
+    expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Neural_Amp_Modeler", expect.objectContaining({ On: true }));
+    expect(useAppStore.getState().testRigReturn?.audition?.captureFile?.value).toBe("Neural Amp Modeler/Tone 3000/A2 model.nam");
     expect(setProperties.mock.calls.filter(([path]) => path === "/Evil/Engine/Patch/Gray_Comp")).toHaveLength(2);
     expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/Spring_Reverb", expect.objectContaining({ On: true, Mix: .15 }));
     expect(setProperties).toHaveBeenCalledWith("/Evil/Engine/Patch/IR", expect.objectContaining({ On: true, IR: "Impulse Responses/Choptones/CT-Fend312EMFDS-4217B.wav" }));

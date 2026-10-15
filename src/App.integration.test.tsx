@@ -211,7 +211,7 @@ describe("RushLink application integration", () => {
     useAppStore.setState((state) => ({ preferences: { ...state.preferences, firstWriteResolved: false, writeMode: "ask" } }));
     render(<App/>);
     await act(async () => { vi.advanceTimersByTime(700); });
-    expect(screen.getByRole("dialog", { name: /Welcome to RushLink/i })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: /Welcome to RushLink by Cygma Audio/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Continue/i }));
     expect(screen.getByRole("dialog", { name: /Choose how changes reach/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Review before applying/i }));

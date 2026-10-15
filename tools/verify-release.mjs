@@ -64,4 +64,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log(`Release verification passed for RushLink ${packageJson.version}: ${distFiles.length} frontend files and ${requiredIcons.length} platform icons checked.`);
+console.log(`Release verification passed for ${tauriConfig.productName} ${packageJson.version}: ${distFiles.length} frontend files and ${requiredIcons.length} platform icons checked.`);

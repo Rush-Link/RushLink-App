@@ -1,8 +1,12 @@
-# Build and test from VS Code
+# Development and platform builds
 
-Open the RushLink repository folder in VS Code. Choose **Terminal → Run Task →
-RushLink: Run on tablet** to build and open the Android app. The same commands
-also work in VS Code's PowerShell terminal.
+Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for the portable frontend setup,
+browser demo and contribution checks. No HeadRush unit, signing credentials or
+GitHub write access are needed to develop and test the frontend.
+
+The platform helpers below are optional Windows PowerShell workflows. Open the
+repository in VS Code and choose **Terminal → Run Task → RushLink: Run on tablet**
+to build and open the Android app. The same commands work in a PowerShell terminal.
 
 ## Everyday shortcuts
 
@@ -28,7 +32,7 @@ For layout checks without building an app, run `npm run test:tablet` or choose
 **RushLink: Check tablet layouts and rotation** in VS Code. This starts the local
 development server and checks nine tablet sizes in both orientations, all app
 workspaces with both menu states, rotation during editing, save dialogs, touch
-setlist ordering, EQ dragging and the website. EQ device writes are intercepted
+setlist ordering and EQ dragging. EQ device writes are intercepted
 inside isolated tests. Screenshots and measurements go to `test-results/`; the browser report
 is in `playwright-report/`. This uses Chromium touch emulation and does not
 replace native Android keyboard or hardware testing.
@@ -40,7 +44,7 @@ The tablet window stays open for testing. `npm run tablet:stop` closes it.
 
 The emulator's SDK, AVD, data and logs stay under the ignored
 `release-artifacts/build-tools` folder. It uses its own ADB server and emulator
-ports, leaving Android Studio's other devices and Camo alone. ADB handles only the
+ports, leaving other Android Studio devices alone. ADB handles only the
 local emulator; RushLink communicates with HeadRush over Wi-Fi.
 
 The first boot and first render can take longer while Android prepares its data.
@@ -106,23 +110,29 @@ Rust builds use `--locked`.
 ## Mac builds
 
 `npm run build:macos` sends a snapshot of the current application sources to the
-private `Rush-Link/RushLink-App` repository, starts the Apple Silicon and Intel
-GitHub Actions jobs, waits for their results and downloads verified DMGs. It
-prints the run URL so progress can be checked in GitHub too.
+GitHub repository configured as `origin`, starts the Apple Silicon and Intel
+Actions jobs, waits for their results and downloads verified DMGs. It prints the
+run URL so progress can be checked in GitHub too. Contributors should use a fork
+as `origin`; the helper accepts GitHub HTTPS and SSH remotes, and rejects the
+separate website repository.
 
-The snapshot uses a separate `build/macos-*` branch. Your current branch, staged
-changes and working files stay in place. Build outputs, profiles, signing keys
-and private device captures are excluded. GitHub credentials stay in the local
+The snapshot includes current working source, including eligible new files, and
+uses a separate `build/macos-*` branch. Your current branch, staged changes and
+working files stay in place. Build outputs, profiles, signing keys and device
+captures are excluded. Review uncommitted source before running this command:
+the snapshot is pushed to `origin` and has that repository's visibility.
+GitHub credentials stay in the local
 credential manager or GitHub CLI; they are not written into project files.
 
 Run `npm run macos:check` to verify GitHub access before a build. The account needs
-access to push private build branches and read Actions artifacts. Mac jobs use
-the repository's Actions allowance. `npm run build:all` performs the local build
+access to push build branches and read Actions artifacts. Enable Actions in your
+fork before building. `npm run build:all` performs the local build
 followed by this Mac workflow.
 
 Build tasks do not create tags, publish releases or deploy the website. Publishing
 remains a separate step in [RELEASE.md](RELEASE.md). Linux is outside this Windows
-workflow; it requires a Linux build environment. iOS is not configured yet.
+workflow; it requires a Linux build environment. See [RELEASE.md](RELEASE.md) for
+the Linux workflow and the iOS preview section below for iPhone and iPad builds.
 
 ## Phone UI checks without building
 
@@ -168,9 +178,9 @@ Replace `tablet` with `phone`; both workflows support the same options:
 | Stop the emulator | `npm run tablet:stop` | `npm run phone:stop` |
 | Browser layout and rotation checks | `npm run test:tablet` | `npm run test:phone` |
 
-In VS Code, choose **Tasks: Run Task ? RushLink: Run on phone** or
+In VS Code, choose **Tasks: Run Task → RushLink: Run on phone** or
 **RushLink: Stop phone**. No emulator extension is required.
-The phone starts in portrait at 1080?2340 with 440 dpi (approximately 393?851
+The phone starts in portrait at 1080 × 2340 with 440 dpi (approximately 393 × 851
 CSS pixels before system insets). Use the emulator rotation controls for landscape.
 It uses the same Android emulator APK as the tablet, with its own persistent AVD,
 app data, ports and session record. Running or stopping one does not stop the other.
@@ -190,21 +200,22 @@ For a setup-only check, run
 ### iPhone and iPad builds on GitHub
 
 Run `npm run build:ios` or select **RushLink: Build iPhone and iPad (GitHub Actions)**
-in VS Code. This snapshots current source into a private build branch, builds on
+in VS Code. This snapshots current source into a build branch on `origin`, builds on
 GitHub's macOS runners, and downloads checksum-verified artifacts. Windows does
 not compile Apple code. The same app supports iPhone and iPad, including rotation.
 
 The workflow produces an **unsigned ARM64 IPA** for iPhone/iPad and an **ARM64
 simulator app ZIP**. The simulator job installs and launches it on an iPhone and
-an iPad, retaining screenshots as a separate private Actions artifact. These
+an iPad, retaining screenshots as a separate Actions artifact. These
 startup checks do not verify a live HeadRush connection from GitHub.
 
 No Apple signing secrets are required for these preview builds. The unsigned IPA
 cannot be installed directly on a physical device or uploaded to TestFlight;
 Apple signing and provisioning must be configured first. Simulator apps run on
 a Mac, including the GitHub runner, and do not run in the Windows Android emulator.
-Artifacts remain private and expire after 14 days on GitHub; downloaded copies
-are kept under `release-artifacts/current-build/<source SHA>/ios-device/` and
+Actions artifacts expire after 14 days and follow the repository's visibility;
+do not upload sensitive data. Downloaded copies are kept under
+`release-artifacts/current-build/<source SHA>/ios-device/` and
 `ios-simulator/`. No App Store upload or public release is performed.
 
 Use `npm run build:ios -- -NoWait` to queue without waiting. Resume downloading

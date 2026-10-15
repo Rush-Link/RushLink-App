@@ -10,7 +10,7 @@ $tokens = $null
 $errors = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($sourceFile, [ref]$tokens, [ref]$errors)
 if ($errors.Count) { throw 'Source parser failed.' }
-foreach ($name in @('Test-ExcludedPath', 'Test-EligibleNewSource', 'Write-JsonFile', 'Receive-CompletedArtifacts', 'Assert-PrivateRepository', 'Invoke-AuthenticatedGit')) {
+foreach ($name in @('Get-GitHubRepository', 'Test-ExcludedPath', 'Test-EligibleNewSource', 'Write-JsonFile', 'Receive-CompletedArtifacts', 'Assert-Repository', 'Invoke-AuthenticatedGit')) {
   $definition = $ast.Find({ param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $false)
   Invoke-Expression $definition.Extent.Text
 }
@@ -29,15 +29,20 @@ function Assert-Throws([scriptblock]$Action, [string]$Message) {
   try { & $Action | Out-Null } catch { $failed = $true }
   Assert $failed $Message
 }
-$expectedRepository = 'Rush-Link/RushLink-App'
+$expectedRepository = 'contributor/rushlink'
 $fixtureRepository = [pscustomobject]@{ full_name = $expectedRepository; private = $true }
 function Get-GitHub { $script:fixtureRepository }
-Assert ((Assert-PrivateRepository).private -eq $true) 'Expected private repository was rejected.'
+Assert ((Assert-Repository).private -eq $true) 'Expected private repository was rejected.'
 $fixtureRepository.private = $false
-Assert-Throws { Assert-PrivateRepository } 'Public repository was accepted.'
-$fixtureRepository.private = $true
+Assert ((Assert-Repository).private -eq $false) 'Expected public repository was rejected.'
 $fixtureRepository.full_name = 'someone/another-repository'
-Assert-Throws { Assert-PrivateRepository } 'Wrong repository was accepted.'
+Assert-Throws { Assert-Repository } 'Wrong repository was accepted.'
+foreach ($remote in @('https://github.com/contributor/rushlink.git', 'https://github.com/contributor/rushlink', 'git@github.com:contributor/rushlink.git', 'ssh://git@github.com/contributor/rushlink.git')) {
+  Assert ((Get-GitHubRepository $remote) -ceq $expectedRepository) "GitHub fork remote was rejected: $remote"
+}
+foreach ($remote in @('https://github.com.evil.example/contributor/rushlink.git', 'https://token@github.com/contributor/rushlink.git', 'https://github.com/contributor/rushlink/extra', 'https://github.com/rush-link/rush-link.github.io.git', 'https://gitlab.com/contributor/rushlink.git', '../rushlink', 'https://github.com/contributor/..')) {
+  Assert-Throws { Get-GitHubRepository $remote } 'Unexpected repository remote was accepted.'
+}
 
 $authKeys = @('GIT_CONFIG_COUNT','GIT_CONFIG_KEY_0','GIT_CONFIG_VALUE_0','GIT_TRACE','GIT_TRACE_CURL','GIT_CURL_VERBOSE','GIT_TRACE_REDACT')
 $authBefore = @{}
@@ -52,10 +57,10 @@ function Invoke-Git {
 }
 Assert-Throws { Invoke-AuthenticatedGit @('ls-remote') } 'Expected Git fixture failure did not propagate.'
 foreach ($key in $authKeys) { Assert ([Environment]::GetEnvironmentVariable($key, 'Process') -ceq $authBefore[$key]) "Git auth environment was not restored: $key" }
-foreach ($path in @('src-tauri/Info.ios.plist','src-tauri/tauri.ios.conf.json','src/pages/new.tsx','tools/build-new.ps1','tools/lib/test.mjs','docs/WORKFLOW.md','.vscode/tasks.json','src-tauri/gen/android/gradlew','src-tauri/gen/android/gradle/wrapper/gradle-wrapper.jar','src-tauri/icons/icon.png','public/new.svg','site/new.mjs','e2e/new.spec.ts','brand/master/new.svg')) {
+foreach ($path in @('src-tauri/Info.ios.plist','src-tauri/tauri.ios.conf.json','src/pages/new.tsx','tools/build-new.ps1','tools/lib/test.mjs','docs/WORKFLOW.md','.vscode/tasks.json','.github/ISSUE_TEMPLATE/bug_report.yml','.github/PULL_REQUEST_TEMPLATE.md','CONTRIBUTING.md','LICENSE','NOTICE.md','THIRD_PARTY_NOTICES.md','licenses/dependency.md','licenses/dependency.txt','.gitignore','.editorconfig','src-tauri/gen/android/gradlew','src-tauri/gen/android/gradle/wrapper/gradle-wrapper.jar','src-tauri/gen/android/gradle/wrapper/NOTICE.md','src-tauri/icons/icon.png','public/new.svg','e2e/new.spec.ts')) {
   Assert (Test-EligibleNewSource $path) "Expected source eligibility: $path"
 }
-foreach ($path in @('release-artifacts/test.dmg','src/model.nam','src/.env','tools/auth.pem','src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/test.so','src-tauri/gen/android/app/build/output.apk','src-tauri/gen/android/tauri.settings.gradle','src-tauri/target/build/file','src/.codex/settings.json')) {
+foreach ($path in @('release-artifacts/test.dmg','site/new.mjs','brand/master/new.svg','reference/schema.json','archive/notes.md','output/results.json','src/model.nam','src/.env','tools/auth.pem','src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/test.so','src-tauri/gen/android/app/build/output.apk','src-tauri/gen/android/tauri.settings.gradle','src-tauri/target/build/file','src/.codex/settings.json')) {
   Assert (-not (Test-EligibleNewSource $path)) "Expected exclusion: $path"
 }
 $fixtureArtifactName = 'RushLink-macos-arm64-7'
@@ -88,7 +93,7 @@ try { $hash = ([BitConverter]::ToString($hasher.ComputeHash($utf8.GetBytes($payl
 $dmgName = 'RushLink_0.1.1_aarch64.dmg'
 $sumName = 'SHA256SUMS-macos-arm64.txt'
 $goodEntries = @(@{Name=$dmgName;Text=$payload},@{Name=$sumName;Text="$hash  $dmgName`n"})
-$run = [pscustomobject]@{ id=123; run_number=7; head_sha=('a' * 40); html_url='https://github.com/Rush-Link/RushLink-App/actions/runs/123' }
+$run = [pscustomobject]@{ id=123; run_number=7; head_sha=('a' * 40); html_url='https://github.com/contributor/rushlink/actions/runs/123' }
 $jobs = @([pscustomobject]@{name='macos (macos-15, aarch64-apple-darwin, arm64)';conclusion='success'})
 New-FixtureArchive $goodEntries
 $directory = New-TestDirectory
@@ -135,7 +140,7 @@ $main = $ast.EndBlock.Statements | Where-Object { $_ -is [Management.Automation.
 $mocks = @'
 function Get-GitHubToken { 'fixture-token' }
 function Get-GitHub([string]$Path) {
-  if (-not $Path) { return [pscustomobject]@{ full_name='Rush-Link/RushLink-App'; private=$true; permissions=[pscustomobject]@{push=$true} } }
+  if (-not $Path) { return [pscustomobject]@{ full_name='contributor/rushlink'; private=$false; permissions=[pscustomobject]@{push=$true} } }
   if ($Path -eq '/actions/workflows/macos-build.yml') { return [pscustomobject]@{state='active'} }
   throw 'Unexpected fixture API request'
 }
@@ -153,14 +158,23 @@ Copy-Item -LiteralPath "$workspace/.github/workflows/macos-build.yml" -Destinati
 git -C $fixtureRepo init -q
 git -C $fixtureRepo config user.name 'Fixture'
 git -C $fixtureRepo config user.email 'fixture@example.invalid'
-git -C $fixtureRepo remote add origin https://github.com/Rush-Link/RushLink-App.git
+git -C $fixtureRepo remote add origin https://github.com/contributor/rushlink.git
+[IO.File]::WriteAllText("$fixtureRepo/src/removed.nam", 'old capture', $utf8)
 git -C $fixtureRepo add .
+git -C $fixtureRepo add -f src/removed.nam
 git -C $fixtureRepo commit -q -m fixture
+Remove-Item -LiteralPath "$fixtureRepo/src/removed.nam"
 [IO.File]::WriteAllText("$fixtureRepo/README.md", 'staged', $utf8)
 git -C $fixtureRepo add README.md
 [IO.File]::WriteAllText("$fixtureRepo/README.md", 'working', $utf8)
 [IO.File]::WriteAllText("$fixtureRepo/src/new.tsx", 'export const fixture = true;', $utf8)
 [IO.File]::WriteAllText("$fixtureRepo/src/private.nam", 'private capture', $utf8)
+$noticePaths = @('THIRD_PARTY_NOTICES.md', 'licenses/dependency.md', 'licenses/dependency.txt', 'src-tauri/gen/android/gradle/wrapper/NOTICE.md')
+foreach ($noticePath in $noticePaths) {
+  $noticeDestination = Join-Path $fixtureRepo $noticePath
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $noticeDestination) | Out-Null
+  [IO.File]::WriteAllText($noticeDestination, 'Fixture third-party notice.', $utf8)
+}
 $originalHead = (git -C $fixtureRepo rev-parse HEAD).Trim()
 $originalIndex = (Get-FileHash -LiteralPath "$fixtureRepo/.git/index").Hash
 $environmentBefore = @{}
@@ -176,7 +190,12 @@ $snapshotFile = Get-ChildItem -LiteralPath "$fixtureRepo/release-artifacts/curre
 $snapshot = Get-Content -LiteralPath $snapshotFile.FullName -Raw | ConvertFrom-Json
 $treePaths = @(git -C $fixtureRepo ls-tree -r --name-only $snapshot.tree_sha)
 Assert ($treePaths -contains 'src/new.tsx') 'New source was omitted.'
+foreach ($noticePath in $noticePaths) {
+  Assert ($treePaths -contains $noticePath) "New third-party notice was omitted: $noticePath"
+}
 Assert ($treePaths -notcontains 'src/private.nam') 'Private capture entered the snapshot.'
+Assert ($treePaths -notcontains 'src/removed.nam') 'A removed tracked capture entered the snapshot.'
+Assert ($snapshot.repository -ceq 'contributor/rushlink' -and $snapshot.private -eq $false) 'Snapshot did not retain the selected public fork identity.'
 Assert (((git -C $fixtureRepo show ($snapshot.tree_sha + ':README.md')) -join "`n") -eq 'working') 'Snapshot used staged contents instead of the current working source.'
 foreach ($key in $environmentBefore.Keys) { Assert ([Environment]::GetEnvironmentVariable($key,'Process') -ceq $environmentBefore[$key]) "Environment was not restored: $key" }
 Write-Output "PASSED: $assertions offline macOS automation assertions."

@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, ArrowRight, Check, ChevronDown, Network, PlugZap, Radar, Router, ShieldCheck } from "lucide-react";
+import { AlertTriangle, ArrowRight, Check, ChevronDown, Network, Radar, Router, ShieldCheck } from "lucide-react";
 import { deviceApi } from "../../services/device-api";
 import { deviceErrorMessage } from "../../services/device-errors";
 import { useAppStore } from "../../stores/app-store";
 import { Badge, Button, Input, Select } from "../ui";
 import { isIpAddress, primaryConnectionAddress } from "../../domain/connection-address";
+import { RushLinkBrand } from "./rushlink-mark";
+import { ThemeControl } from "./theme-control";
 
 type DeviceProfileId = "flex-prime" | "prime" | "core" | "custom";
 
@@ -72,7 +74,7 @@ export function DeviceConnectionGate() {
   return <div className="device-connect-gate" role="dialog" aria-modal="true" aria-labelledby="device-connect-title" aria-describedby="device-connect-description">
     <div className="device-connect-panel">
       <header className="device-connect-panel__hero">
-        <div className="device-connect-icon" aria-hidden="true"><PlugZap size={25}/></div>
+        <RushLinkBrand className="device-connect-brand" artwork="full"/>
         <div><Badge tone={busy ? "amber" : "cyan"}>{busy ? "CONNECTING" : "RUSHLINK READY"}</Badge><h1 id="device-connect-title">Connect to your device</h1><p id="device-connect-description">Make sure your HeadRush and this device are on the same network, then connect to begin.</p></div>
       </header>
 
@@ -99,6 +101,7 @@ export function DeviceConnectionGate() {
         {discovered.length > 0 && <div className="device-connect-results" aria-label="Discovered HeadRush devices">{discovered.map((candidate) => <button key={`${candidate.id}:${candidate.host}`} disabled={busy} onClick={() => { setProfile(profileForAddress(candidate.host)); setAddress(candidate.host); submit(candidate.host); }}><span><Check size={15}/></span><span><strong>{candidate.name}</strong><small>{candidate.host} · {candidate.model}</small></span><ArrowRight size={15}/></button>)}</div>}
       </section>}
 
+      <div className="device-connect-appearance"><ThemeControl/></div>
       <footer><ShieldCheck size={15}/><span>RushLink waits for a live connection before enabling device controls. Nothing on your pedal is changed by this screen.</span></footer>
     </div>
   </div>;

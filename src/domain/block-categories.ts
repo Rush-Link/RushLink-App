@@ -114,7 +114,7 @@ for (const [category, names] of DEVICE_CATEGORY_MEMBERS) {
 }
 
 export function blockBelongsToCategoryGroup(name: string, groupId: BlockCategoryGroupId): boolean {
-  const canonical = name.replace(/\s+2$/, "").trim().toLowerCase();
+  const canonical = name.replace(/\s+(?:[2-9]|\d{2,})$/, "").trim().toLowerCase();
   const group = BLOCK_CATEGORY_GROUPS.find((candidate) => candidate.id === groupId);
   if (!group) return false;
   if (DEVICE_CATEGORY_MEMBERS.some(([category, names]) => group.categories.some((candidate) => candidate === category) && names.some((candidate) => candidate.toLowerCase() === canonical))) return true;
@@ -122,7 +122,7 @@ export function blockBelongsToCategoryGroup(name: string, groupId: BlockCategory
 }
 
 export function categoryForBlockName(name: string, effectType = 0): BlockCategory {
-  const canonical = name.replace(/\s+2$/, "").trim();
+  const canonical = name.replace(/\s+(?:[2-9]|\d{2,})$/, "").trim();
   const exact = categoryByDeviceName.get(canonical.toLowerCase());
   if (exact) return exact;
   const lower = canonical.toLowerCase();

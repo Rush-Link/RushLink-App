@@ -1,8 +1,22 @@
-Copyright (c) 2026 RushLink. All rights reserved.
+MIT License
 
-This software is proprietary and source-available only to its owner and authorized collaborators. No permission is granted to copy, modify, redistribute, publish, sublicense, or sell the source code or compiled software without prior written permission from the copyright holder.
+Copyright (c) 2026 Cygma Audio
 
-The owner may distribute compiled versions at no charge under separate end-user terms. “Free” does not mean open source.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-HeadRush and related names and marks belong to their respective owners. RushLink is an unofficial project and is not affiliated with or endorsed by HeadRush or inMusic.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 

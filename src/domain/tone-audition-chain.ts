@@ -1,6 +1,7 @@
-import type { BlockCategory, CloudTone, HeadRushObject, Parameter, RigBlock } from "./types";
+import type { BlockCategory, CloudTone, HeadRushObject, NamPreference, Parameter, RigBlock } from "./types";
 import { CAPTURE_SLOT_NAME, adaptAuditionChain } from "./tone-analysis";
 import { parameterDeviceValue, parametersForObject } from "./headrush-reflection";
+import { allocateModuleType, baseModuleName, isNamBlock, isNamModule, namModules, namParameterValue, validateNamCapacity } from "./nam";
 
 export interface TestRigDeviceAssignment {
   slot: number;
@@ -15,6 +16,9 @@ export interface TestRigDevicePlan {
   assignments: TestRigDeviceAssignment[];
   clearSlots: number[];
   captureSlot: number | null;
+  /** Provider host read before creating or clearing any planned DSP host. */
+  captureSourceModuleName?: string;
+  captureSourceModuleTypeId?: number;
   applied: boolean;
   complete: boolean;
   skippedBlocks: string[];
@@ -22,7 +26,6 @@ export interface TestRigDevicePlan {
 }
 
 const normalize = (value: string) => value.trim().toLocaleLowerCase().replace(/[^a-z0-9]+/g, "");
-const baseModuleName = (value: string) => value.replace(/ 2$/, "");
 const modulePath = (name: string) => `/Evil/Engine/Patch/${name.replaceAll(" ", "_")}`;
 
 const CATEGORY_FALLBACK: Partial<Record<BlockCategory, string[]>> = {
@@ -33,30 +36,16 @@ const CATEGORY_FALLBACK: Partial<Record<BlockCategory, string[]>> = {
   dynamics: ["Volume"], utility: ["Noise Filter"], "fx-loop": ["FX-Loop"],
 };
 
-function moduleId(moduleTypes: string[], candidates: string[], unavailable = new Set<number>()): number | null {
-  for (const candidate of candidates) {
-    const exact = moduleTypes.findIndex((name) => normalize(name) === normalize(candidate));
-    if (exact > 0 && !unavailable.has(exact)) return exact;
-  }
-  // Flex Prime exposes a second DSP instance as a separate module type
-  // (for example IR 2 or Dyn Delay 2) and a matching reflected object path.
-  for (const candidate of candidates) {
-    const second = moduleTypes.findIndex((name) => normalize(name) === normalize(`${baseModuleName(candidate)} 2`));
-    if (second > 0 && !unavailable.has(second)) return second;
-  }
-  return null;
-}
-
 function isCaptureModule(name: string, source: CloudTone["source"], remoteKind: CloudTone["remoteKind"] | undefined, captureType: Parameters<typeof adaptAuditionChain>[1]): boolean {
   const base = baseModuleName(name);
   if (captureType === "ir") return /^(?:IR(?: \(1024\))?|ReValver Cab)$/.test(base);
-  if (source === "Tone3000") return base === "Neural Amp Modeler";
+  if (source === "Tone3000") return isNamModule(name);
   if (remoteKind === "clone") return ["Amp Clone", "Pedal Clone", "SuperClone"].includes(base);
   return /Clone|Neural Amp Modeler/.test(base);
 }
 
 function isCabModule(name: string): boolean {
-  return /^(?:IR(?: \(1024\))?|Cab|ReValver Cab)(?: 2)?$/.test(name);
+  return /^(?:IR(?: \(1024\))?|Cab|ReValver Cab)$/.test(baseModuleName(name));
 }
 
 /**
@@ -72,6 +61,9 @@ export function buildTestRigDevicePlan(input: {
   moduleTypes: string[];
   currentModuleTypeIds: number[];
   previousModuleTypeIds?: number[];
+  captureSlot?: number;
+  namInstance?: number;
+  namPreference?: NamPreference;
 }): TestRigDevicePlan {
   const current = Array.from({ length: 14 }, (_, slot) => input.currentModuleTypeIds[slot] ?? 0);
   if (input.source === "HeadRush Cloud" && input.remoteKind !== "clone" && input.captureType !== "ir") {
@@ -87,11 +79,26 @@ export function buildTestRigDevicePlan(input: {
   const capture = captureCandidates[0];
   if (!capture) return { assignments: [], clearSlots: [], captureSlot: null, applied: false, complete: false, skippedBlocks: [], message: "The temporary NAM or IR host did not appear in the device chain." };
 
-  const adapted = adaptAuditionChain(input.blocks, input.captureType)
+  const adapted = adaptAuditionChain(input.blocks.map((block) => {
+    if (block.name !== CAPTURE_SLOT_NAME) return block;
+    const lite = input.namPreference === "nam2-lite" ? true : input.namPreference === "nam2" ? false : undefined;
+    const parameters = lite === undefined ? block.parameters : [
+      ...block.parameters.filter((parameter) => (parameter.sourceProperty ?? parameter.id) !== "LightMode"),
+      { id: "LightMode", sourceProperty: "LightMode", label: "Lite mode", value: lite, writable: true },
+    ];
+    return { ...block, slot: input.captureSlot ?? block.slot, parameters };
+  }), input.captureType)
     .filter((block) => !["input", "output"].includes(block.category))
     .sort((left, right) => left.slot - right.slot);
   const captureBlock = adapted.find((block) => block.name === CAPTURE_SLOT_NAME);
   if (!captureBlock) return { assignments: [], clearSlots: [], captureSlot: capture.slot, applied: false, complete: false, skippedBlocks: [], message: "The Test Rig has no capture marker." };
+
+  const selectedHost = input.source === "Tone3000" && input.captureType !== "ir" && input.namInstance !== undefined
+    ? namModules(input.moduleTypes).find((module) => module.instance === input.namInstance) : undefined;
+  if (input.source === "Tone3000" && input.captureType !== "ir" && input.namInstance !== undefined && !selectedHost) {
+    return { assignments: [], clearSlots: [], captureSlot: captureBlock.slot, applied: false, complete: false, skippedBlocks: [], message: `NAM host ${input.namInstance} is not exposed by the connected device.` };
+  }
+  const targetCapture = selectedHost ? { id: selectedHost.moduleTypeId, name: selectedHost.name } : capture;
 
   const companion = current.flatMap((id, slot) => {
     const name = input.moduleTypes[id] ?? "";
@@ -100,17 +107,20 @@ export function buildTestRigDevicePlan(input: {
 
   const assignments: TestRigDeviceAssignment[] = [];
   const skipped: string[] = [];
-  const claimedModuleTypes = new Set<number>([capture.id]);
+  const claimedModuleTypes = new Set<number>([targetCapture.id]);
   for (const block of adapted) {
     const slot = block.slot;
     if (slot < 0 || slot >= 14) { skipped.push(block.name); continue; }
     if (block.name === CAPTURE_SLOT_NAME) {
-      assignments.push({ slot, moduleTypeId: capture.id, moduleName: capture.name, block, enabled: true, capture: true });
+      assignments.push({ slot, moduleTypeId: targetCapture.id, moduleName: targetCapture.name, block, enabled: true, capture: true });
       continue;
     }
     let resolvedId: number | null = null;
     if (["cab", "ir"].includes(block.category) && companion && !claimedModuleTypes.has(companion.id)) resolvedId = companion.id;
-    resolvedId ??= moduleId(input.moduleTypes, [block.model, block.name, ...(CATEGORY_FALLBACK[block.category] ?? [])], claimedModuleTypes);
+    const reflectedName = block.moduleTypeId ? input.moduleTypes[block.moduleTypeId] : undefined;
+    const candidates = [block.model, block.name, ...(reflectedName ? [reflectedName] : []),
+      ...(isNamBlock(block) ? ["Neural Amp Modeler"] : CATEGORY_FALLBACK[block.category] ?? [])];
+    resolvedId ??= allocateModuleType(input.moduleTypes, candidates, claimedModuleTypes);
     if (!resolvedId) { skipped.push(block.name); continue; }
     claimedModuleTypes.add(resolvedId);
     assignments.push({
@@ -123,20 +133,43 @@ export function buildTestRigDevicePlan(input: {
     });
   }
 
+  // 5.2 automatically makes every A2 lane Lite above two files. Its raw API
+  // still accepts writes to disabled LightMode controls, so enforce this in
+  // the plan as well instead of sending an unsafe saved Full preference.
+  const namAssignments = assignments.filter((assignment) => isNamModule(assignment.moduleName));
+  const capacity = validateNamCapacity(namAssignments.map((assignment) => ({ ...assignment.block, model: assignment.moduleName })), input.moduleTypes);
+  if (!capacity.valid) return { assignments: [], clearSlots: [], captureSlot: captureBlock.slot,
+    captureSourceModuleName: capture.name, captureSourceModuleTypeId: capture.id,
+    applied: false, complete: false, skippedBlocks: [], message: capacity.errors.join(" ") };
+  const namFileLanes = namAssignments.reduce((count, assignment) => count + (namParameterValue(assignment.block.parameters, "Doubling") === true ? 2 : 1), 0);
+  const forcedLite = namFileLanes > 2;
+  if (forcedLite) {
+    for (const assignment of namAssignments) {
+      const lanes = namParameterValue(assignment.block.parameters, "Doubling") === true ? ["LightMode", "LightMode2"] : ["LightMode"];
+      assignment.block = { ...assignment.block, parameters: [
+        ...assignment.block.parameters.filter((parameter) => !lanes.includes(parameter.sourceProperty ?? parameter.id)),
+        ...lanes.map((property) => ({ id: property, sourceProperty: property, label: "Lite mode", value: true, writable: true })),
+      ] };
+    }
+  }
+
   const occupied = new Set(assignments.map((assignment) => assignment.slot));
   const clearSlots = current.flatMap((id, slot) => id && !occupied.has(slot) ? [slot] : []);
   const hasSurroundingFx = assignments.some((assignment) => !assignment.capture);
   const complete = skipped.length === 0;
   const applied = assignments.length > 0 && complete;
   const suffix = skipped.length ? ` Skipped unsupported blocks: ${skipped.join(", ")}.` : "";
+  const modeNotice = forcedLite ? ` All ${namFileLanes} NAM lanes use Lite mode, as required when more than two captures are loaded.` : "";
   return {
     assignments,
     clearSlots,
     captureSlot: captureBlock.slot,
+    captureSourceModuleName: capture.name,
+    captureSourceModuleTypeId: capture.id,
     applied,
     complete,
     skippedBlocks: skipped,
-    message: applied ? hasSurroundingFx ? `Applied ${assignments.filter((assignment) => !assignment.capture).length} Test Rig FX in their saved positions around slot ${captureBlock.slot + 1}.` : `Applied the Test Rig capture and its settings in slot ${captureBlock.slot + 1}.` : `The complete Test Rig could not be resolved.${suffix}`,
+    message: (applied ? hasSurroundingFx ? `Applied ${assignments.filter((assignment) => !assignment.capture).length} Test Rig FX in their saved positions around slot ${captureBlock.slot + 1}.` : `Applied the Test Rig capture and its settings in slot ${captureBlock.slot + 1}.` : `The complete Test Rig could not be resolved.${suffix}`) + modeNotice,
   };
 }
 
@@ -161,6 +194,10 @@ function compatibleParameter(block: RigBlock, source: Parameter, target: Paramet
 }
 
 function displayValue(source: Parameter, target: Parameter): Parameter["value"] {
+  if (source.choices && typeof target.value !== "string") {
+    const raw = parameterDeviceValue(source, source.value);
+    if (typeof raw === "boolean" || typeof raw === "number") return raw;
+  }
   if (typeof source.value !== "number" || typeof target.value !== "number") return source.value;
   const value = source.value;
   if (source.min === 0 && source.max === 10 && target.min === 0 && target.max === 100) return value * 10;
@@ -179,15 +216,48 @@ function exactReflectedParameter(source: Parameter, target: Parameter): boolean 
   return sourceKeys.some((key) => targetKeys.includes(key));
 }
 
+/** User-owned NAM files to load before refreshing architecture-dependent controls. */
+export function testRigNamFileBindings(block: RigBlock, object?: HeadRushObject): Partial<Record<"LoadedClone" | "LoadedClone2", string>> {
+  const bindings: Partial<Record<"LoadedClone" | "LoadedClone2", string>> = {};
+  const doubled = namParameterValue(block.parameters, "Doubling") === true;
+  for (const parameter of block.parameters) {
+    const property = parameter.sourceProperty ?? parameter.id;
+    if (property !== "LoadedClone" && property !== "LoadedClone2") continue;
+    if (block.name === CAPTURE_SLOT_NAME && property === "LoadedClone") continue;
+    if (property === "LoadedClone2" && !doubled) continue;
+    if (object && (!object.meta?.properties?.[property] || object.meta.properties[property].readOnly)) continue;
+    if (typeof parameter.value !== "string" || !parameter.value.trim() || /^(?:none|off|no file|not selected|<none>)$/i.test(parameter.value.trim())) continue;
+    bindings[property] = parameter.value;
+  }
+  return bindings;
+}
+
 /** Produces only properties confirmed by the reflected module schema. */
 export function testRigBlockProperties(block: RigBlock, object: HeadRushObject | undefined, enabled: boolean): Record<string, unknown> {
-  const reflectedProperties = Object.keys(object?.meta?.properties ?? {});
+  const disabled = new Set(Array.isArray(object?.value?.disabled) ? object.value.disabled : []);
+  const reflectedProperties = Object.keys(object?.meta?.properties ?? {})
+    .filter((property) => !disabled.has(property) && !object?.meta?.properties?.[property]?.readOnly);
   const targetParameters = parametersForObject(object, reflectedProperties);
   const properties: Record<string, unknown> = { On: enabled };
+  const nam = isNamBlock(block) || block.name === CAPTURE_SLOT_NAME;
+  const doubling = namParameterValue(block.parameters, "Doubling") === true;
   for (const source of block.parameters.filter((parameter) => parameter.writable !== false)) {
-    // The provider demo owns the temporary capture file. Test Rig Studio may
-    // shape a NAM host, but must never replace its LoadedClone selection.
-    if (block.name === CAPTURE_SLOT_NAME && (source.deviceFile || /^(?:LoadedClone|FileMissing)\d*$/i.test(source.sourceProperty || source.id))) continue;
+    // The provider owns lane 1. A doubled NAM's second lane belongs to the user.
+    const sourceProperty = source.sourceProperty || source.id;
+    if (nam && !doubling && /^(?:LoadedClone|FileMissing|Input|Output|LightMode|CalibrateInput|OutputMode|Normalize)2$/.test(sourceProperty)) continue;
+    if (block.name === CAPTURE_SLOT_NAME && ((source.deviceFile && sourceProperty !== "LoadedClone2") || /^(?:LoadedClone|FileMissing)$/i.test(sourceProperty))) continue;
+    // 5.2 replaced Normalize with OutputMode. Translate older saved templates
+    // only when they do not already carry an explicit new-mode selection.
+    if (sourceProperty === "Normalize" && reflectedProperties.includes("OutputMode") && !reflectedProperties.includes("Normalize")) {
+      if (!block.parameters.some((parameter) => (parameter.sourceProperty ?? parameter.id) === "OutputMode")) properties.OutputMode = namParameterValue([source], "Normalize") === true ? 2 : 0;
+      continue;
+    }
+    if (sourceProperty === "OutputMode" && !reflectedProperties.includes("OutputMode") && reflectedProperties.includes("Normalize")) {
+      if (!block.parameters.some((parameter) => (parameter.sourceProperty ?? parameter.id) === "Normalize")) {
+        properties.Normalize = source.value === 2 || String(source.value).toLowerCase() === "normalize";
+      }
+      continue;
+    }
     // Firmware can reflect multiple alternative selectors for one loader
     // (IR/IR2, IR/IR1024, LoadedClone/LoadedClone2). An empty alternative is
     // not an instruction to clear the file that is already selected in the

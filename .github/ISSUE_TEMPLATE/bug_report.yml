@@ -1,0 +1,56 @@
+name: Bug report
+description: Report a reproducible RushLink problem.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For security vulnerabilities, follow SECURITY.md instead of posting publicly.
+        Redact account details, tokens, serial numbers, private addresses and rig names. Do not attach a raw device capture or backup.
+  - type: input
+    id: version
+    attributes:
+      label: RushLink version or commit
+      placeholder: "0.1.3 or a commit hash"
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and app or browser
+      placeholder: "Windows 11 desktop app, macOS version, or browser and version"
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device model and firmware
+      description: Enter Demo mode if no device is involved.
+      placeholder: "HeadRush Flex Prime, firmware 5.2.0"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Start from a new app session and include the workspace or action involved.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: Include redacted error text or a screenshot if it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Additional context
+      description: Does it reproduce in Demo mode? If this involves a device write, say what changed and whether restoration succeeded.

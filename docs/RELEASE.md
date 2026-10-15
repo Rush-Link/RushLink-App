@@ -1,18 +1,43 @@
-# Build and release checklist
+# Build and release guide
 
-RushLink installers contain compiled application assets only. The device-reference tree, local WebView profile, cached ToneMod results, rig history, favourites, diagnostics, test output and developer logs are not Tauri bundle resources.
+RushLink installers contain compiled application assets only. Local device captures, the WebView profile, cached ToneMod results, rig history, favourites, diagnostics, test output and developer logs are outside the maintained source and are not Tauri bundle resources.
 
-For everyday preview builds, use the [automated VS Code workflow](WORKFLOW.md).
+For everyday preview builds, use the [development workflow](WORKFLOW.md).
 `npm run build:all` builds locally on Windows and uses GitHub Actions for Mac,
 collecting verified installers without publishing a release. Preview builds do
 not require a version change.
 
+The displayed product name is **RushLink by Cygma Audio**. Keep application
+identifiers and existing data keys stable. Windows MSI uses the explicit
+`bundle.windows.wix.upgradeCode` from the original RushLink name so a renamed
+installer upgrades the existing installation. The Windows collection script
+reads the branded source filenames and retains the established public download
+filenames; macOS verification reads the app name from the Tauri configuration.
+
 ## Before a release build
 
+When converting an older private checkout into a public repository, review its
+history as well as its current files. Removing a capture or third-party archive
+from the working tree does not remove it from earlier commits. Start the public
+repository from a reviewed source snapshot without `.git` or generated/local
+data when the old history contains material that should stay private. Keep the
+historical repository and its backup outside the public repository; do not push
+its branches, tags or a mirror into the new repository. Preview snapshot helpers
+retain their parent commit history and do not perform history sanitization.
+
 1. Update the version in `package.json`, `src-tauri/tauri.conf.json` and `src-tauri/Cargo.toml`.
+   Keep `package-lock.json`, `src-tauri/Cargo.lock` and the app's displayed version in sync.
+   Write versioned notes in `docs/releases/<app-version>.md` and clearly separate
+   the RushLink app version from its target HeadRush firmware. RushLink **0.1.3**
+   targets HeadRush firmware **5.2.0**; see the [0.1.3 release notes](releases/0.1.3.md).
 2. Run `npm ci`.
-3. Run `npm audit --omit=dev` and `npm run test:ci`.
+3. Run `npm audit --omit=dev` and `npm run test:ci`. Review dependency advisories rather than applying unreviewed updates during packaging.
 4. Run `npm run release:check`. This rebuilds the frontend and rejects source maps, database files, private keys, absolute user paths, captured-device paths and known development-device identifiers.
+5. Check that the license, third-party notices, release notes and supported-platform notes match the release. Confirm that any new fixtures or assets can be redistributed.
+
+Pull requests run the quality workflow without signing secrets or a HeadRush unit.
+Packaging and publishing use separate workflows; a successful test run does not
+publish an installer or verify physical-device behavior.
 
 ## Local Windows build
 
@@ -37,7 +62,7 @@ The local build uses JDK 17, Android SDK platform 36, Build Tools 35.0.0 and
 `aarch64-linux-android`. Its Gradle 8.14.3 wrapper checks the official distribution
 SHA-256. Android Studio's bundled Java 25 cannot run this wrapper; select JDK 17.
 
-On this prepared Windows workspace:
+After preparing the Windows prerequisites in [WORKFLOW.md](WORKFLOW.md):
 
 ```powershell
 npm run build:android
@@ -69,15 +94,14 @@ The separate `Build RushLink Linux preview` workflow in `.github/workflows/linux
 builds x86-64 `.deb` and `.AppImage` packages on Ubuntu 22.04. This baseline follows
 [Tauri's Linux compatibility guidance](https://v2.tauri.app/distribute/debian/).
 It runs application tests, native Linux tests, and release privacy checks before
-packaging. Only installers and SHA-256 checksums are uploaded as private Actions
-artifacts, retained for 14 days. It does not create or modify public releases.
+packaging. Only installers and SHA-256 checksums are uploaded as Actions artifacts,
+retained for 14 days. It does not create or modify releases.
 
-Run it manually after the workflow exists on the private repository's default
-branch, or push an approved build snapshot to a `build/linux-*` branch to trigger
-it without changing the default branch. Include the current app sources and new
-component styles; building an old committed revision will omit local fixes.
-Do not include local profiles, databases, credentials, or device captures.
-Private-repository builds consume the organization's Actions allowance.
+Run it manually from the repository's **Actions** tab, or push a committed build
+snapshot to a `build/linux-*` branch. Contributors can run the workflow in a fork.
+Build the intended committed revision: uncommitted local changes are not included
+when starting Actions from GitHub. Do not include local profiles, databases,
+credentials or device captures in source snapshots or artifacts.
 
 Download the `RushLink-linux-x64-<run number>` artifact from the completed run.
 Verify its checksums before testing. Linux GUI startup, WebKitGTK rendering,
@@ -91,7 +115,6 @@ On a prepared Linux machine, the equivalent package command is:
 
 ```sh
 npm ci
-npx playwright install --with-deps chromium
 npm run release:check
 npm run tauri -- build --ci --bundles deb,appimage -- --locked
 ```
@@ -106,17 +129,16 @@ Apple Silicon and Intel builds run on GitHub-hosted macOS runners. The
 uses native runners for both architectures. Run it manually or push a build
 snapshot to a `build/macos-*` branch. It runs native tests and release checks,
 builds `.dmg` installers, and verifies the app signatures and binary architectures.
-Only installers and SHA-256 checksums are uploaded as private Actions artifacts,
+Only installers and SHA-256 checksums are uploaded as Actions artifacts,
 retained for 14 days.
 
 Preview builds use ad-hoc signing and need no Apple credentials. They are not
 notarized; successful packaging does not establish Gatekeeper acceptance or live
 HeadRush compatibility. Test installation, GUI startup, discovery and Wi-Fi NAM saving
-on each Mac architecture before public distribution. Private macOS builds consume
-the organization's Actions allowance.
+on each Mac architecture before distributing them as supported releases.
 
 The `Build RushLink desktop release` workflow also builds both Mac architectures
-alongside Windows, and creates a draft prerelease in the private source repository.
+alongside Windows, and creates a draft prerelease in the application source repository.
 It uses ad-hoc signing when an Apple signing identity is not configured.
 
 For public distribution, configure these repository secrets before running the workflow:
@@ -130,12 +152,18 @@ For public distribution, configure these repository secrets before running the w
 
 Without Apple signing and notarisation, macOS users will receive Gatekeeper warnings. Windows installers are also unsigned until a code-signing certificate is configured.
 
-## Publish and website
+## Draft releases and website
 
-1. Trigger the release workflow or push a tag such as `rushlink-v0.1.0`.
-2. Download and smoke-test all three draft artifacts: Windows x64, macOS Apple Silicon and macOS Intel.
+1. Review the source revision and matching versions, then trigger **Build RushLink desktop release** or push a `rushlink-v<version>` tag. This needs repository write access and creates a draft prerelease.
+2. Download and inspect the Windows x64 installers, macOS Apple Silicon/Intel DMGs and Linux x64 Debian/AppImage preview packages. Test installation and startup on each available platform; report any platform or hardware checks that were not performed.
 3. Edit the generated release notes, keep the early-alpha warning, then publish the draft.
-4. Verify the marketing site's `data-repository` remains `rush-link/rush-link.github.io`. Keep the proprietary `rush-link/RushLink-App` source repository private.
-5. Deploy GitHub Pages and verify the Downloads panel and release count against the published release.
+4. Coordinate the download catalog with the separate website repository, `rush-link/rush-link.github.io`. Its `data-repository` identifies the repository supplying its download releases; creating a source-repository release does not copy assets there automatically.
+5. Make website changes and deploy GitHub Pages from that website repository. Verify the Downloads panel and release count against its configured release source. Website sources, validation and Pages deployment are maintained separately from the application repository.
+
+Preview Actions run in public repositories and forks as well as private ones.
+Their logs and artifacts follow the repository's access rules. Treat every build
+input and uploaded artifact as redistributable; the 14-day artifact expiry is not
+a privacy guarantee. Keep signing credentials in repository secrets, and never
+put credentials or captured user/device data in release notes or diagnostics.
 
 Do not upload `reference/`, `coverage*`, `test-results/`, `playwright-report/`, `dist/` or the complete `src-tauri/target/` directory. Upload only the installer assets produced below the platform bundle directories.

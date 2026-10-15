@@ -1,4 +1,5 @@
 import type { CaptureType, CloudTone, DeviceCapabilities, DeviceInfo, HeadRushSubtree, Parameter, RigBlock } from "./types";
+import { isNamBlock, namParameterValue } from "./nam";
 
 type DetectableTone = Pick<CloudTone, "title" | "description" | "tags"> & { declaredType?: string };
 
@@ -17,9 +18,8 @@ export interface TestRigSlotRole {
 }
 
 /**
- * Stable ToneMod host positions. The UI presents these as slots 4, 7 and 8,
- * while the model deliberately remains zero-based. Amps remain movable so a
- * post-amp effect can be placed before the fixed NAM and IR hosts.
+ * Default ToneMod host positions. The audition host can move; older templates
+ * retain slot 7. Extra NAM blocks are independent ordinary chain blocks.
  */
 export const TEST_RIG_SLOT_ROLES: readonly TestRigSlotRole[] = [
   { id: "drive", slot: 3, label: "Drive pedal", shortLabel: "DRIVE", description: "Overdrive, distortion, fuzz or Pedal Clone" },
@@ -27,37 +27,43 @@ export const TEST_RIG_SLOT_ROLES: readonly TestRigSlotRole[] = [
   { id: "ir", slot: 7, label: "IR loader", shortLabel: "IR", description: "IR and IR (1024) loaders only" },
 ] as const;
 
-export function testRigSlotRole(slot: number) {
-  return TEST_RIG_SLOT_ROLES.find((role) => role.slot === slot) ?? null;
+export function testRigCaptureSlot(captureSlot?: number): number {
+  return typeof captureSlot === "number" && Number.isInteger(captureSlot) && captureSlot > 0 && captureSlot < TEST_RIG_MAX_SLOTS - 1 && ![3, 7].includes(captureSlot) ? captureSlot : 6;
+}
+
+export function testRigSlotRole(slot: number, captureSlot?: number) {
+  return TEST_RIG_SLOT_ROLES.map((role) => role.id === "nam" ? { ...role, slot: testRigCaptureSlot(captureSlot) } : role)
+    .find((role) => role.slot === slot) ?? null;
 }
 
 function testRigBlockRole(block: Pick<RigBlock, "name" | "model" | "category">): TestRigSlotRoleId | null {
   const identity = `${block.name} ${block.model}`.toLowerCase();
-  if (block.name === CAPTURE_SLOT_NAME || /neural amp modeler|\bnam(?: clone| host)?\b/.test(identity)) return "nam";
+  if (block.name === CAPTURE_SLOT_NAME) return "nam";
   if (block.category === "ir" && /\bir\b|impulse/.test(identity)) return "ir";
   if (["drive", "overdrive", "distortion"].includes(block.category) || /pedal clone/.test(identity)) return "drive";
   return null;
 }
 
-export function reservedTestRigSlotForBlock(block: Pick<RigBlock, "name" | "model" | "category">) {
+export function reservedTestRigSlotForBlock(block: Pick<RigBlock, "name" | "model" | "category">, captureSlot?: number) {
   const role = testRigBlockRole(block);
+  if (role === "nam") return testRigCaptureSlot(captureSlot);
   return role ? TEST_RIG_SLOT_ROLES.find((candidate) => candidate.id === role)?.slot ?? null : null;
 }
 
 /** A single source of truth used by catalogue filtering, drag/drop and store actions. */
-export function testRigSlotAllowsBlock(slot: number, block: Pick<RigBlock, "name" | "model" | "category">) {
+export function testRigSlotAllowsBlock(slot: number, block: Pick<RigBlock, "name" | "model" | "category">, captureSlot?: number) {
   if (!Number.isInteger(slot) || slot < 0 || slot >= TEST_RIG_MAX_SLOTS) return false;
-  const targetRole = testRigSlotRole(slot)?.id ?? null;
+  const targetRole = testRigSlotRole(slot, captureSlot)?.id ?? null;
   return targetRole === testRigBlockRole(block);
 }
 
-export function canPlaceTestRigBlock(blocks: RigBlock[], block: RigBlock, targetSlot: number) {
-  if (!testRigSlotAllowsBlock(targetSlot, block)) return false;
+export function canPlaceTestRigBlock(blocks: RigBlock[], block: RigBlock, targetSlot: number, captureSlot?: number) {
+  if (!testRigSlotAllowsBlock(targetSlot, block, captureSlot)) return false;
   const existing = blocks.find((item) => item.id === block.id);
   if (existing && ["input", "output"].includes(existing.category)) return false;
   const target = blocks.find((item) => item.slot === targetSlot && item.id !== block.id);
   if (target && ["input", "output"].includes(target.category)) return false;
-  return !target || !existing || testRigSlotAllowsBlock(existing.slot, target);
+  return !target || !existing || testRigSlotAllowsBlock(existing.slot, target, captureSlot);
 }
 
 /**
@@ -100,7 +106,7 @@ export function normalizeTestRigEffectOrder(blocks: RigBlock[]): RigBlock[] {
  * Migrates older compact Test Rig plans into the fixed studio layout. Existing
  * blocks and parameters are retained; only their visual plan slots change.
  */
-export function normalizeTestRigSlots(blocks: RigBlock[]): RigBlock[] {
+export function normalizeTestRigSlots(blocks: RigBlock[], captureSlot?: number): RigBlock[] {
   const sorted = [...blocks].sort((left, right) => left.slot - right.slot);
   const claimed = new Set<number>();
   const assigned = new Map<string, number>();
@@ -111,13 +117,12 @@ export function normalizeTestRigSlots(blocks: RigBlock[]): RigBlock[] {
   if (input) { assigned.set(input.id, 0); claimed.add(0); }
   if (output) { assigned.set(output.id, TEST_RIG_MAX_SLOTS - 1); claimed.add(TEST_RIG_MAX_SLOTS - 1); }
 
-  // The protected capture marker wins the NAM host if malformed legacy data
-  // also contains a separate NAM block.
+  // Reserve the protected capture marker before assigning ordinary NAM blocks.
   const prioritized = [...sorted].sort((left, right) => Number(right.name === CAPTURE_SLOT_NAME) - Number(left.name === CAPTURE_SLOT_NAME));
   for (const block of prioritized) {
     if (assigned.has(block.id)) continue;
     const role = testRigBlockRole(block);
-    const slot = reservedTestRigSlotForBlock(block);
+    const slot = reservedTestRigSlotForBlock(block, captureSlot);
     if (!role || slot === null || roleOwners.has(role)) continue;
     assigned.set(block.id, slot);
     claimed.add(slot);
@@ -136,7 +141,7 @@ export function normalizeTestRigSlots(blocks: RigBlock[]): RigBlock[] {
       .map((candidate) => assigned.get(candidate.id))
       .find((slot): slot is number => slot !== undefined) ?? TEST_RIG_MAX_SLOTS;
     const openSlots = Array.from({ length: Math.max(0, nextSlot - previousSlot - 1) }, (_, offset) => previousSlot + offset + 1)
-      .filter((candidate) => !claimed.has(candidate) && testRigSlotAllowsBlock(candidate, block));
+      .filter((candidate) => !claimed.has(candidate) && testRigSlotAllowsBlock(candidate, block, captureSlot));
     const slot = openSlots.includes(block.slot) ? block.slot : openSlots[0];
     if (slot !== undefined) {
       assigned.set(block.id, slot);
@@ -144,13 +149,13 @@ export function normalizeTestRigSlots(blocks: RigBlock[]): RigBlock[] {
     }
   }
 
-  // A duplicated role cannot fit into a single reserved slot. Keep it visible
+  // A duplicated Drive or IR role cannot fit its reserved slot. Keep it visible
   // in an unused position so validation explains the problem rather than
   // silently deleting user data.
   for (const block of sorted) {
     if (assigned.has(block.id)) continue;
     const slot = Array.from({ length: TEST_RIG_MAX_SLOTS }, (_, candidate) => candidate)
-      .find((candidate) => !claimed.has(candidate) && !testRigSlotRole(candidate));
+      .find((candidate) => !claimed.has(candidate) && !testRigSlotRole(candidate, captureSlot));
     if (slot !== undefined) {
       assigned.set(block.id, slot);
       claimed.add(slot);
@@ -224,8 +229,8 @@ export function adaptAuditionChain(blocks: RigBlock[], captureType: Exclude<Capt
     let autoBypassed = false;
     if (!isCapture) {
       if (captureType === "full-rig") autoBypassed = !["input", "output"].includes(block.category);
-      if (captureType === "amp+ir") autoBypassed = ["amp", "cab", "ir", "clone"].includes(block.category);
-      if (captureType === "amp") autoBypassed = ["amp", "clone"].includes(block.category);
+      if (captureType === "amp+ir") autoBypassed = ["amp", "cab", "ir", "clone"].includes(block.category) && !isNamBlock(block);
+      if (captureType === "amp") autoBypassed = ["amp", "clone"].includes(block.category) && !isNamBlock(block);
       if (captureType === "ir") autoBypassed = ["cab", "ir"].includes(block.category);
     }
     return { ...block, effectiveEnabled: isCapture || (block.enabled && !autoBypassed), autoBypassed };
@@ -271,7 +276,7 @@ export function mergeTestRigParameters(existing: Parameter[], reflected: Paramet
   return merged;
 }
 
-export function validateTestRig(blocks: RigBlock[]): TestRigValidation {
+export function validateTestRig(blocks: RigBlock[], captureSlot?: number): TestRigValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
   const captureBlocks = blocks.filter((block) => block.name === CAPTURE_SLOT_NAME);
@@ -289,16 +294,25 @@ export function validateTestRig(blocks: RigBlock[]): TestRigValidation {
     if (!Number.isInteger(block.slot) || block.slot < 0 || block.slot >= TEST_RIG_MAX_SLOTS) errors.push(`${block.name} has an invalid slot.`);
     else if (slots.has(block.slot)) errors.push(`More than one block uses slot ${block.slot + 1}.`);
     else slots.add(block.slot);
-    if (Number.isInteger(block.slot) && !testRigSlotAllowsBlock(block.slot, block)) {
-      const reservedSlot = reservedTestRigSlotForBlock(block);
-      const targetRole = testRigSlotRole(block.slot);
+    if (Number.isInteger(block.slot) && !testRigSlotAllowsBlock(block.slot, block, captureSlot)) {
+      const reservedSlot = reservedTestRigSlotForBlock(block, captureSlot);
+      const targetRole = testRigSlotRole(block.slot, captureSlot);
       errors.push(reservedSlot !== null
         ? `${block.name} is reserved for slot ${reservedSlot + 1}.`
         : `Slot ${block.slot + 1} accepts ${targetRole?.description ?? "a compatible block"} only.`);
     }
-    const fileParameters = block.parameters.filter((parameter) => parameter.deviceFile);
+    const nam = isNamBlock(block) || block.name === CAPTURE_SLOT_NAME;
+    const doubling = namParameterValue(block.parameters, "Doubling") === true;
+    const fileParameters = block.parameters.filter((parameter) => parameter.deviceFile
+      && !(block.name === CAPTURE_SLOT_NAME && /^(?:LoadedClone|FileMissing)$/.test(parameter.sourceProperty ?? parameter.id))
+      && !(nam && !doubling && /2$/.test(parameter.sourceProperty ?? parameter.id)));
     if (block.enabled && fileParameters.length && !selectedTestRigFile(fileParameters)) {
       errors.push(`${block.name} requires a selected ${fileParameters[0].label.toLocaleLowerCase()} before auditioning.`);
+    }
+    if (block.enabled && nam && doubling) {
+      for (const parameter of fileParameters) {
+        if (!hasDeviceFileValue(parameter)) errors.push(`${block.name} requires a selected ${parameter.label.toLocaleLowerCase()} for both doubled NAM lanes before auditioning.`);
+      }
     }
   }
 
@@ -310,21 +324,21 @@ export function validateTestRig(blocks: RigBlock[]): TestRigValidation {
   };
 }
 
-export function addBlockToTestRig(blocks: RigBlock[], block: RigBlock): RigBlock[] {
+export function addBlockToTestRig(blocks: RigBlock[], block: RigBlock, captureSlot?: number): RigBlock[] {
   if (blocks.length >= TEST_RIG_MAX_SLOTS || blocks.some((item) => item.id === block.id)) return blocks;
   const used = new Set(blocks.map((item) => item.slot));
-  const reservedSlot = reservedTestRigSlotForBlock(block);
+  const reservedSlot = reservedTestRigSlotForBlock(block, captureSlot);
   const slot = reservedSlot !== null && !used.has(reservedSlot)
     ? reservedSlot
     : Array.from({ length: TEST_RIG_MAX_SLOTS }, (_, index) => index)
-      .find((candidate) => !used.has(candidate) && testRigSlotAllowsBlock(candidate, block)) ?? -1;
+      .find((candidate) => !used.has(candidate) && testRigSlotAllowsBlock(candidate, block, captureSlot)) ?? -1;
   if (slot < 0) return blocks;
   return [...blocks, { ...block, slot }].sort((left, right) => left.slot - right.slot);
 }
 
 /** Places a block in an exact visual slot. Occupied editable slots are swapped. */
-export function placeTestRigBlock(blocks: RigBlock[], block: RigBlock, targetSlot: number): RigBlock[] {
-  if (!Number.isInteger(targetSlot) || targetSlot < 0 || targetSlot >= TEST_RIG_MAX_SLOTS || !canPlaceTestRigBlock(blocks, block, targetSlot)) return blocks;
+export function placeTestRigBlock(blocks: RigBlock[], block: RigBlock, targetSlot: number, captureSlot?: number): RigBlock[] {
+  if (!Number.isInteger(targetSlot) || targetSlot < 0 || targetSlot >= TEST_RIG_MAX_SLOTS || !canPlaceTestRigBlock(blocks, block, targetSlot, captureSlot)) return blocks;
   const existing = blocks.find((item) => item.id === block.id);
   if (!existing && blocks.length >= TEST_RIG_MAX_SLOTS) return blocks;
   const target = blocks.find((item) => item.slot === targetSlot && item.id !== block.id);
@@ -341,8 +355,8 @@ export function placeTestRigBlock(blocks: RigBlock[], block: RigBlock, targetSlo
   return [...blocks, { ...block, slot: targetSlot }].sort((left, right) => left.slot - right.slot);
 }
 
-export function duplicateTestRigBlock(blocks: RigBlock[], blockId: string, nextId: string): RigBlock[] {
+export function duplicateTestRigBlock(blocks: RigBlock[], blockId: string, nextId: string, captureSlot?: number): RigBlock[] {
   const source = blocks.find((block) => block.id === blockId);
   if (!source || source.name === CAPTURE_SLOT_NAME || ["input", "output"].includes(source.category)) return blocks;
-  return addBlockToTestRig(blocks, { ...structuredClone(source), id: nextId, name: `${source.name} copy` });
+  return addBlockToTestRig(blocks, { ...structuredClone(source), id: nextId, name: `${source.name} copy` }, captureSlot);
 }

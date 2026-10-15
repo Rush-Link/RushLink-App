@@ -80,6 +80,14 @@ describe("HeadRush reflection adapter", () => {
     });
   });
 
+  it("retains firmware-forced Lite mode as a visible control that cannot be written", () => {
+    const [parameter] = parametersForObject({
+      meta: { properties: { LightMode: { type: "boolean", "x-options": { strings: ["Full", "Lite"] } } } },
+      value: { LightMode: true, order: ["LightMode"], labels: ["NAM mode"], disabled: ["LightMode"] },
+    });
+    expect(parameter).toMatchObject({ id: "LightMode", value: "Lite", rawValue: true, writable: false });
+  });
+
   it("uses reflected companion lists for dynamic drum kit and variation selectors", () => {
     const parameters = parametersForObject(reflectedTree["/Evil/Engine/DrumsCtrl"], ["Kit", "StyleVari"]);
     expect(parameters[0]).toMatchObject({ id: "Kit", value: "Fixture Kit A", choices: ["Fixture Kit A", "Fixture Kit B"], choiceValues: ["Fixture Kit A", "Fixture Kit B"] });

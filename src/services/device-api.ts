@@ -474,6 +474,20 @@ export const deviceApi = {
     return reflectedReturn(await this.callMethod("/Evil/API/Tone3000", "fetchModels", [JSON.stringify({ toneId, architecture })]));
   },
 
+  async startTone3000Login(): Promise<string> {
+    const action = "Starting Tone3000 sign-in";
+    const result = assertMethodResponse(await this.callMethod("/Evil/API/Tone3000", "startLoginGetAuthUrl", []), action);
+    if (typeof result !== "string" || !result.trim()) throw invalidDeviceResponse(action, "a sign-in URL", result);
+    let url: URL;
+    try { url = new URL(result.trim()); }
+    catch { throw invalidDeviceResponse(action, "a valid HTTPS sign-in URL", "invalid URL"); }
+    if (url.protocol !== "https:" || url.username || url.password
+      || !(url.hostname === "tone3000.com" || url.hostname.endsWith(".tone3000.com"))) {
+      throw invalidDeviceResponse(action, "an HTTPS tone3000.com sign-in URL", "untrusted URL");
+    }
+    return url.href;
+  },
+
   async listHeadRushCloud(query = "", pageToken?: string, pageSize = 100, compatibility?: { releaseTypes?: string[]; unsupportedCapabilities?: string[] }): Promise<unknown> {
     const names: string[] = ["page_size", "filter", "include_incompatible_versions"];
     const values: string[] = [String(pageSize), query, "true"];

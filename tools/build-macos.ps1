@@ -1,16 +1,17 @@
 <#
 .SYNOPSIS
-Builds macOS DMGs or universal iOS previews in the private GitHub repository.
+Builds macOS DMGs or universal iOS previews through GitHub Actions.
 .DESCRIPTION
 Creates an isolated source snapshot and pushes a new build/<platform>-* branch, then
 waits for Actions and downloads verified installers. The current branch, working
-tree and index are preserved. No tags, releases or merges are created.
+tree and index are preserved. Uses the GitHub repository configured as origin,
+including contributor forks. No tags, releases or merges are created.
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -Check
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1
 .EXAMPLE
-powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -Platform $Platform -DownloadRun 34693833500
+powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-macos.ps1 -Platform ios -DownloadRun 123456789
 #>
 [CmdletBinding(DefaultParameterSetName = 'Build')]
 param(
@@ -24,8 +25,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Split-Path -Parent $PSScriptRoot))
-$expectedRepository = 'Rush-Link/RushLink-App'
-$apiRoot = "https://api.github.com/repos/$expectedRepository"
+$expectedRepository = $null
+$apiRoot = $null
 $outputRoot = Join-Path $repoRoot 'release-artifacts/current-build'
 $gitCommand = Get-Command git -ErrorAction Stop
 $previousEnvironment = @{}
@@ -50,10 +51,22 @@ function Get-GitValue {
   ((Invoke-Git $Arguments).Lines -join "`n").Trim()
 }
 
+function Get-GitHubRepository {
+  param([string]$Remote)
+  if ($Remote -notmatch '^(?:https://github\.com/|git@github\.com:|ssh://git@github\.com/)(?<owner>[A-Za-z0-9][A-Za-z0-9-]*)/(?<repository>[A-Za-z0-9_.-]+?)(?:\.git)?/?$') {
+    throw 'origin must point directly to a GitHub repository over HTTPS or SSH.'
+  }
+  $name = "$($Matches.owner)/$($Matches.repository)"
+  if ($Matches.repository -in @('.', '..') -or $name -ieq 'rush-link/rush-link.github.io') {
+    throw 'Use the application source checkout, not the separate website repository.'
+  }
+  $name
+}
+
 function Test-ExcludedPath {
   param([string]$Path)
   $Path -match '(?i)(^|/)(release-artifacts|node_modules|dist|target|build|profiles?|captures?|credentials?|\.git|\.codex|\.agents|\.gradle|\.kotlin|\.tauri)(/|$)' -or
-    $Path -match '(?i)^reference/headrush/(raw|live)/' -or
+    $Path -match '(?i)^(site|brand|reference|archive|output)/' -or
     $Path -match '(?i)(^|/)(local\.properties|key\.properties|keystore\.properties|tauri\.settings\.gradle)$' -or
     ($Path -match '(?i)(^|/)\.env($|\.)' -and $Path -notmatch '(?i)(^|/)\.env\.example$') -or
     $Path -match '(?i)\.(nam|wav|aiff?|flac|mp3|m4a|hrig|ampclone|superclone|dmg|appimage|deb|msi|exe|apk|aab|so|dll|dylib|p12|pfx|pem|key|jks|keystore|zip|db|sqlite3?)$'
@@ -63,11 +76,12 @@ function Test-EligibleNewSource {
   param([string]$Path)
   if (Test-ExcludedPath $Path) { return $false }
   if ($Path -match '^src/.+\.(ts|tsx|js|jsx|json|css|svg|png|webp|jpe?g|woff2?|ttf)$') { return $true }
-  if ($Path -match '^(public|site)/.+\.(html|js|mjs|json|css|svg|png|webp|avif|gif|jpe?g|ico|woff2?|ttf|txt|md)$|^site/\.nojekyll$') { return $true }
+  if ($Path -match '^public/.+\.(html|js|mjs|json|css|svg|png|webp|avif|gif|jpe?g|ico|woff2?|ttf|txt|md)$') { return $true }
   if ($Path -match '^e2e/.+\.(ts|tsx|js|mjs|json|css|html|svg|png|webp|txt|snap)$') { return $true }
-  if ($Path -match '^brand/.+\.(svg|png|webp|jpe?g|ico|icns|xml|md)$') { return $true }
-  if ($Path -match '^tools/[^/]+\.(ps1|mjs|js)$|^tools/lib/.+\.(ps1|mjs|js|json)$|^docs/[^/]+\.md$') { return $true }
-  if ($Path -match '^\.vscode/(tasks|extensions)\.json$|^\.github/workflows/[^/]+\.ya?ml$') { return $true }
+  if ($Path -match '^tools/[^/]+\.(ps1|mjs|js)$|^tools/lib/.+\.(ps1|mjs|js|json)$|^docs/(?:releases/)?[^/]+\.md$') { return $true }
+  if ($Path -match '^\.vscode/(tasks|extensions)\.json$|^\.github/.+\.(ya?ml|md|json)$') { return $true }
+  if ($Path -match '^(README|CONTRIBUTING|CODE_OF_CONDUCT|SECURITY|SUPPORT|CHANGELOG|THIRD_PARTY_NOTICES)\.md$|^(LICENSE|NOTICE)(\.[A-Za-z0-9_-]+)?$|^\.(gitignore|editorconfig)$') { return $true }
+  if ($Path -match '^licenses/[^/]+\.(md|txt)$' -or $Path -eq 'src-tauri/gen/android/gradle/wrapper/NOTICE.md') { return $true }
   if ($Path -match '^(package(-lock)?\.json|index\.html|(vite|vitest|playwright)(\.[^/]+)?\.config\.ts|tsconfig(\.[^/]+)?\.json)$') { return $true }
   if ($Path -match '^src-tauri/(src/.+\.rs|build\.rs|Cargo\.(toml|lock)|tauri(\.[^/]+)?\.conf\.json|capabilities/[^/]+\.json|icons/.+\.(png|svg|ico|icns)|Info\.ios\.plist)$') { return $true }
   if ($Path -match '^src-tauri/gen/android/') {
@@ -81,12 +95,12 @@ function Test-EligibleNewSource {
 
 function Get-SourceManifest {
   $tracked = @((Invoke-Git @('ls-files')).Lines)
-  $forbidden = @($tracked | Where-Object { Test-ExcludedPath $_ })
-  if ($forbidden.Count) { throw ('Tracked private/generated files cannot enter the build snapshot: ' + ($forbidden -join ', ')) }
+  $forbidden = @($tracked | Where-Object { (Test-ExcludedPath $_) -and (Test-Path -LiteralPath (Join-Path $repoRoot $_)) })
+  if ($forbidden.Count) { throw ('Tracked sensitive/generated files cannot enter the build snapshot: ' + ($forbidden -join ', ')) }
   $untracked = @((Invoke-Git @('ls-files', '--others', '--exclude-standard')).Lines)
   $eligible = @($untracked | Where-Object { Test-EligibleNewSource $_ })
   $unsupportedInputs = @($untracked | Where-Object {
-    $_ -match '^(src/|src-tauri/|tools/|docs/|public/|site/|e2e/|brand/|\.github/|\.vscode/)' -and
+    $_ -match '^(src/|src-tauri/|tools/|docs/|public/|site/|e2e/|brand/|licenses/|\.github/|\.vscode/)' -and
       -not (Test-EligibleNewSource $_)
   })
   if ($unsupportedInputs.Count) {
@@ -154,10 +168,10 @@ function Write-JsonFile {
   [IO.File]::WriteAllText($Path, ($Value | ConvertTo-Json -Depth 12), $utf8)
 }
 
-function Assert-PrivateRepository {
+function Assert-Repository {
   $repository = Get-GitHub ''
-  if ($repository.full_name -cne $expectedRepository -or $repository.private -ne $true) {
-    throw "This command only builds the private $expectedRepository repository."
+  if ($repository.full_name -ine $expectedRepository) {
+    throw "The GitHub response does not match origin ($expectedRepository)."
   }
   $repository
 }
@@ -165,8 +179,8 @@ function Assert-PrivateRepository {
 function Get-Run {
   param([long]$Id)
   $run = Get-GitHub "/actions/runs/$Id"
-  if ($run.path -ne ".github/workflows/$Platform-build.yml" -or $run.head_repository.full_name -cne $expectedRepository -or $run.head_sha -notmatch '^[0-9a-f]{40}$') {
-    throw 'The requested run is not a macOS build from the expected private repository.'
+  if ($run.path -ne ".github/workflows/$Platform-build.yml" -or $run.head_repository.full_name -ine $expectedRepository -or $run.head_sha -notmatch '^[0-9a-f]{40}$') {
+    throw "The requested run is not a $Platform preview from $expectedRepository."
   }
   $run
 }
@@ -179,7 +193,7 @@ function Save-GitHubDownload {
   $request.Method = 'GET'
   $request.AllowAutoRedirect = $false
   $request.Accept = 'application/vnd.github+json'
-  $request.UserAgent = 'RushLink-private-build'
+  $request.UserAgent = 'RushLink-preview-build'
   $request.Headers.Add('Authorization', $headers.Authorization)
   $request.Headers.Add('X-GitHub-Api-Version', '2022-11-28')
   try {
@@ -257,23 +271,24 @@ try {
   }
   if ([IO.Path]::GetFullPath((Get-GitValue @('rev-parse', '--show-toplevel'))) -ne $repoRoot) { throw 'Run this script from the RushLink checkout.' }
   $remote = Get-GitValue @('remote', 'get-url', 'origin')
-  if ($remote -cnotmatch '^(https://github\.com/Rush-Link/RushLink-App(\.git)?|git@github\.com:Rush-Link/RushLink-App\.git)$') { throw 'origin must point directly to the expected Rush-Link/RushLink-App repository.' }
+  $expectedRepository = Get-GitHubRepository $remote
+  $apiRoot = "https://api.github.com/repos/$expectedRepository"
   if ((Invoke-Git @('ls-files', '-u')).Lines.Count) { throw 'Resolve merge conflicts before building a source snapshot.' }
   if ((Invoke-Git @('check-ignore', '--quiet', 'release-artifacts/current-build/macos/.probe') -AllowFailure).Code -ne 0) { throw 'The artifact directory must be ignored by Git.' }
   $sourceManifest = Get-SourceManifest
   $token = Get-GitHubToken
-  $headers = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'RushLink-private-build' }
+  $headers = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json'; 'X-GitHub-Api-Version' = '2022-11-28'; 'User-Agent' = 'RushLink-preview-build' }
   $token = $null
-  $repository = Assert-PrivateRepository
+  $repository = Assert-Repository
   if ($Platform -eq 'macos') {
     $workflow = Get-GitHub '/actions/workflows/macos-build.yml'
     if ($workflow.state -ne 'active') { throw 'The macOS Actions workflow is not active.' }
   }
-  if (-not $DownloadRun -and $repository.permissions.push -ne $true) { throw 'GitHub push access is required to create a private build branch.' }
+  if (-not $DownloadRun -and $repository.permissions.push -ne $true) { throw 'GitHub push access is required to create a build branch. Contributors can use their own fork as origin.' }
   $workflowText = Get-Content -LiteralPath (Join-Path $repoRoot ".github/workflows/$Platform-build.yml") -Raw
-  if ($workflowText -notmatch ("build/$Platform-" + '\*') -or $workflowText -notmatch 'github\.event\.repository\.private == true' -or $workflowText -notmatch 'contents: read' -or $workflowText -match 'contents: write|tauri-apps/tauri-action|releaseDraft:|gh release') { throw 'The local Apple workflow must remain a private artifact-only build.' }
+  if ($workflowText -notmatch ("build/$Platform-" + '\*') -or $workflowText -notmatch 'contents: read' -or $workflowText -match 'contents: write|tauri-apps/tauri-action|releaseDraft:|gh release') { throw 'The Apple preview workflow must remain an artifact-only build with read-only repository permissions.' }
   if ($Check) {
-    Write-Host "Ready: private $expectedRepository; $Platform workflow configured; GitHub authenticated."
+    Write-Host "Ready: $expectedRepository; $Platform workflow configured; GitHub authenticated."
     Write-Host "$($sourceManifest.Tracked.Count) tracked files and $($sourceManifest.NewSource.Count) eligible new source files will be considered."
     $sourceManifest.NewSource | ForEach-Object { Write-Host "New source: $_" }
     Write-Host 'Preflight only: no files, commits, branches or workflow runs were created.'
@@ -297,7 +312,7 @@ try {
       Invoke-Git @('add', '-u', '--', '.') | Out-Null
       foreach ($newSource in $sourceManifest.NewSource) { Invoke-Git @('add', '--', $newSource) | Out-Null }
       $stagedFiles = @((Invoke-Git @('ls-files')).Lines)
-      if (@($stagedFiles | Where-Object { Test-ExcludedPath $_ }).Count) { throw 'Snapshot contains excluded private/generated files.' }
+      if (@($stagedFiles | Where-Object { Test-ExcludedPath $_ }).Count) { throw 'Snapshot contains excluded sensitive/generated files.' }
       $credentialScan = Invoke-Git @('grep', '--cached', '-l', '-I', '-E', 'github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY', '--', '.') -AllowFailure
       if ($credentialScan.Code -gt 1 -or $credentialScan.Lines.Count) { throw 'Snapshot credential scan failed; inspect staged source without printing credential contents.' }
       # Tauri regenerates Android templates with trailing whitespace during local
@@ -314,17 +329,17 @@ try {
       $changes = @((Invoke-Git @('diff', '--cached', '--name-status', $base)).Lines)
     } finally { $env:GIT_INDEX_FILE = $previousIndex }
     if ((Get-FileHash -LiteralPath $indexPath -Algorithm SHA256).Hash -ne $indexHash -or (Get-GitValue @('rev-parse', 'HEAD')) -ne $base -or (Get-GitValue @('rev-parse', '--abbrev-ref', 'HEAD')) -ne $originalBranch) { throw 'Local Git state changed during preparation; no branch was pushed.' }
-    $commit = Get-GitValue @('commit-tree', $tree, '-p', $base, '-m', "Build private $Platform preview from current RushLink source")
+    $commit = Get-GitValue @('commit-tree', $tree, '-p', $base, '-m', "Build $Platform preview from current RushLink source")
     $branch = "build/$Platform-" + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + $commit.Substring(0, 8)
     Invoke-Git @('check-ref-format', '--branch', $branch) | Out-Null
     if ((Invoke-AuthenticatedGit @('ls-remote', '--exit-code', '--heads', "https://github.com/$expectedRepository.git", "refs/heads/$branch") -AllowFailure).Code -ne 2) { throw 'Build branch is not confirmed to be new.' }
-    Assert-PrivateRepository | Out-Null
+    Assert-Repository | Out-Null
     Write-Host "Snapshot $commit contains $($changes.Count) changed files."
     $changes | ForEach-Object { Write-Host $_ }
-    $snapshot = [pscustomobject]@{ repository = $expectedRepository; private = $true; source_sha = $commit; tree_sha = $tree; base_sha = $base; branch = $branch; changes = $changes; new_source = $sourceManifest.NewSource; created_at = [DateTime]::UtcNow.ToString('o') }
+    $snapshot = [pscustomobject]@{ repository = $expectedRepository; private = [bool]$repository.private; source_sha = $commit; tree_sha = $tree; base_sha = $base; branch = $branch; changes = $changes; new_source = $sourceManifest.NewSource; created_at = [DateTime]::UtcNow.ToString('o') }
     Write-JsonFile (Join-Path $outputRoot "snapshot-$commit.json") $snapshot
     Invoke-AuthenticatedGit @('-c', 'push.followTags=false', 'push', "https://github.com/$expectedRepository.git", "${commit}:refs/heads/$branch") | Out-Null
-    Write-Host "Pushed private build branch $branch."
+    Write-Host "Pushed build branch $branch to $expectedRepository."
     $run = $null
     for ($attempt = 0; $attempt -lt 24 -and -not $run; $attempt++) {
       $branchQuery = [Uri]::EscapeDataString($branch)

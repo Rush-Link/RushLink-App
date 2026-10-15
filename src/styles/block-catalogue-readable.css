@@ -1,4 +1,5 @@
 /* Readable effect choices: model names wrap naturally instead of disappearing into ellipses. */
+.block-browser__nam-guide{margin:0;padding:0 12px 10px;color:#91a1b6;font-size:12px;line-height:1.5}
 body .block-catalogue {
   min-height: 360px;
   max-height: min(520px, calc(100vh - 230px));

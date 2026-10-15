@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   ios:
-    if: github.event.repository.private == true
     name: ios (${{ matrix.kind }})
     runs-on: macos-15
     timeout-minutes: 60
@@ -57,7 +56,7 @@ jobs:
           npm run tauri -- ios build --ci --no-sign --archive-only --target "$target" -- --locked
       - name: Verify, package and test iPhone and iPad
         run: node tools/ios-artifacts.mjs ${{ matrix.kind }}
-      - name: Upload private app package
+      - name: Upload iOS preview package
         uses: actions/upload-artifact@v4
         with:
           name: RushLink-ios-${{ matrix.kind }}-${{ github.run_number }}

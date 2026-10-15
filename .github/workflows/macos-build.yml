@@ -15,8 +15,6 @@ concurrency:
 
 jobs:
   macos:
-    # Keep proprietary sources and preview artifacts in the private repository.
-    if: github.event.repository.private == true
     strategy:
       fail-fast: false
       matrix:
@@ -50,8 +48,6 @@ jobs:
           key: ${{ matrix.target }}
       - name: Install locked JavaScript dependencies
         run: npm ci
-      - name: Install browser for release checks
-        run: npx playwright install chromium
       - name: Test application
         run: npm test
       - name: Test native macOS transport
@@ -76,7 +72,8 @@ jobs:
           mount_dir="$(mktemp -d)"
           trap 'hdiutil detach "$mount_dir" >/dev/null 2>&1 || true; rmdir "$mount_dir" 2>/dev/null || true' EXIT
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmgs[0]}"
-          app="$mount_dir/RushLink.app"
+          product_name="$(node -p "require('./src-tauri/tauri.conf.json').productName")"
+          app="$mount_dir/$product_name.app"
           codesign --verify --deep --strict "$app"
           executable_name="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Contents/Info.plist")"
           executable="$app/Contents/MacOS/$executable_name"
@@ -101,7 +98,7 @@ jobs:
           cd "$stage"
           shasum -a 256 -- *.dmg > "SHA256SUMS-macos-$RELEASE_ARCH.txt"
           shasum -a 256 --check "SHA256SUMS-macos-$RELEASE_ARCH.txt"
-      - name: Upload private macOS preview
+      - name: Upload macOS preview
         uses: actions/upload-artifact@v4
         with:
           name: RushLink-macos-${{ matrix.arch }}-${{ github.run_number }}

@@ -1,0 +1,30 @@
+/* Bypassed effects remain interactive. Keep their names readable; the bypass
+   label, power state and desaturated category color communicate their state. */
+:is(.app, .dialog) :is(.overview-slot.bypassed, .block-node.bypassed, .tp-config-block.bypassed, .tp-editor-slot.bypassed),
+:is(.app, .dialog) .audition-block.bypassed > button { opacity: 1; }
+.app :is(.smart-footswitch.disabled > .smart-footswitch__identity, .smart-footswitch.disabled > .assignment-mode-switch, .smart-footswitch.disabled > .smart-footswitch__actions, .visual-scene-slot.empty) { opacity: 1; }
+.app .drummer-phrase__lane i.disabled { opacity: 1; }
+
+/* Metadata uses the same readable secondary roles as the main app shell. */
+:root:not([data-theme="light"]) :is(.app, .dialog) :where(p, small) { color: var(--muted) !important; }
+:root:not([data-theme="light"]) :is(.app, .dialog) :is(.overview-slot > span, .live-metrics span, .tabs button > span, .block-node--empty > span) { color: var(--text-2) !important; }
+:root:not([data-theme="light"]) .app :is(
+  .visual-scene-slot__head > span, .scene-browser-strip__letter, .scene-hero-letter,
+  .drummer-actions button > b, .stagehand-stage-tabs button > span,
+  .live-pad--empty > span, .expression-pedal-modern > em,
+  .overview-slot.empty strong, .setlist-run-columns > span,
+  .event-log__head > span, .live-pad__meta i, .live-hint,
+  .expression-range-values > i, .diagnostic-summary .card > div > span,
+  .scene-preset-trigger > span, .library-sort > span, .visual-scene-turn > span,
+  .scene-mode-buttons > button, .live-pad__slot, .live-pad > small, .event-row > code
+) { color: var(--text-2) !important; }
+:root:not([data-theme="light"]) :is(.app, .dialog) :is(.tone-card__footer > span, .tone-card__tags > span, .drummer-device-note, .device-asset-browser__summary > span, .expression-pedal-tabs em, .tp-editor-slot > small, .tp-editor-slot.empty > span, .tp-set-number, .slot-index, .drummer-phrase__lane i > b) { color: var(--text-2) !important; }
+:root:not([data-theme="light"]) .tp-slot-guide > .badge { color: var(--cyan) !important; }
+:root:not([data-theme="light"]) .eq-db-label { fill: var(--muted) !important; }
+:root:not([data-theme="light"]) .app :is(.overview-slot.bypassed > small, .overview-slot.empty > small) { color: var(--muted) !important; }
+:root:not([data-theme="light"]) .app .overview-slot:not(.empty):not(.bypassed) > small { color: var(--slot-color) !important; }
+:root:not([data-theme="light"]) :is(.app, .dialog) :is([role="alert"], [class*="error"]) :where(p, small) { color: inherit !important; }
+:root:not([data-theme="light"]) :is(.app, .dialog) :is(.ui-button--primary, .drum-main-play, .drummer-play) :where(p, small) { color: inherit !important; }
+
+/* Context menus are rendered in a portal outside the app shell. */
+:root:not([data-theme="light"]) .rush-context-menu :is(small, footer, kbd) { color: var(--muted); }

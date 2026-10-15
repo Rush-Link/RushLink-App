@@ -32,13 +32,16 @@ test-results/
 *.sqlite3
 *.sqlite-*
 
-# Private device captures
-reference/headrush/raw/
-reference/headrush/live/
-reference/headrush/*discovery*.json
-reference/headrush/*sweep*.json
-reference/headrush/route-discovery.json
-reference/headrush/web-file-crawl.json
+# Local research, personal experiments and historical archives
+reference/
+archive/
+output/
+captures/
+/site/
+/brand/
+*.prompt.txt
+*.bundle
+*.patch
 
 # Copied/generated material
 HeadRush Flex Prime - User Guide - v5.1.0.pdf
@@ -47,3 +50,8 @@ src-tauri/gen/schemas/
 release-artifacts/
 *.tmp
 *.bak
+
+# Local workspace tool state; project automation is versioned explicitly
+/.*/
+!/.github/
+!/.vscode/

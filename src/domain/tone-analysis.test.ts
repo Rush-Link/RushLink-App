@@ -245,6 +245,42 @@ describe("Tone3000 capture analysis", () => {
     expect(duplicateTestRigBlock(source, source.find((block) => block.name === "Capture slot")!.id, "capture-copy")).toBe(source);
   });
 
+  it("adds, moves and duplicates independent NAM blocks outside the audition marker", () => {
+    const source = structuredClone(testRigTemplates[0].blocks);
+    const extra: RigBlock = { id: "stacked-nam", name: "Neural Amp Modeler 2", model: "Neural Amp Modeler 2", category: "clone", color: "#fff", enabled: true, slot: 2, parameters: [] };
+    const added = addBlockToTestRig(source, extra);
+    expect(added.find((block) => block.id === extra.id)?.slot).toBe(2);
+    const moved = placeTestRigBlock(added, added.find((block) => block.id === extra.id)!, 8);
+    expect(moved.find((block) => block.id === extra.id)?.slot).toBe(8);
+    expect(validateTestRig(moved).valid).toBe(true);
+    expect(duplicateTestRigBlock(moved, extra.id, "another-nam").find((block) => block.id === "another-nam")).toBeDefined();
+    expect(adaptAuditionChain(moved, "amp").find((block) => block.id === extra.id)).toMatchObject({ autoBypassed: false, effectiveEnabled: true });
+    expect(adaptAuditionChain(moved, "full-rig").find((block) => block.id === extra.id)?.autoBypassed).toBe(true);
+  });
+
+  it("reserves the configured audition slot while freeing the legacy NAM position", () => {
+    const moved = normalizeTestRigSlots(structuredClone(testRigTemplates[0].blocks), 8);
+    expect(moved.find((block) => block.name === "Capture slot")?.slot).toBe(8);
+    expect(validateTestRig(moved, 8).valid).toBe(true);
+    expect(testRigSlotAllowsBlock(6, { name: "Extra NAM", model: "Neural Amp Modeler", category: "clone" }, 8)).toBe(true);
+    expect(testRigSlotAllowsBlock(8, { name: "Delay", model: "Tape Echo", category: "delay" }, 8)).toBe(false);
+  });
+
+  it("requires the user-owned second capture file only when audition host doubling is enabled", () => {
+    const blocks = structuredClone(testRigTemplates[0].blocks);
+    const capture = blocks.find((block) => block.name === "Capture slot")!;
+    capture.parameters = capture.parameters.filter((parameter) => !["Doubling", "LoadedClone2"].includes(parameter.id));
+    capture.parameters.push(
+      { id: "Doubling", label: "Doubling", value: false },
+      { id: "LoadedClone2", label: "Second NAM file", value: "", deviceFile: { fileType: 9, startPath: "Neural Amp Modeler" } },
+    );
+    expect(validateTestRig(blocks).valid).toBe(true);
+    capture.parameters.find((parameter) => parameter.id === "Doubling")!.value = true;
+    expect(validateTestRig(blocks).errors).toContainEqual(expect.stringMatching(/both doubled NAM lanes/));
+    capture.parameters.find((parameter) => parameter.id === "LoadedClone2")!.value = "Neural Amp Modeler/second.nam";
+    expect(validateTestRig(blocks).valid).toBe(true);
+  });
+
   it("reports provider connection, capability, identifier, and login readiness", () => {
     const readyDevice = { ...demoDevice, status: "ready" as const };
     expect(toneProviderReadiness({ native: false, device: null, capabilities: null, subtree: null, source: "Tone3000" }).ready).toBe(true);

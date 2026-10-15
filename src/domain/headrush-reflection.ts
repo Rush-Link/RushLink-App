@@ -116,7 +116,8 @@ export function parametersForObject(object: HeadRushObject | undefined, include?
   return order.flatMap((property, index) => {
     const raw = values[property];
     const meta = properties[property];
-    if (!meta || raw === undefined || disabled.has(property) || meta.readOnly) return [];
+    if (!meta || raw === undefined || meta.readOnly) return [];
+    const writable = !disabled.has(property);
     const choices = meta["x-options"]?.strings;
     const advertisedIndex = advertisedOrder.indexOf(property);
     const labelIndex = advertisedOrder.length ? advertisedIndex : index;
@@ -125,7 +126,7 @@ export function parametersForObject(object: HeadRushObject | undefined, include?
     const startPath = meta["x-options"]?.startPath;
     if (typeof fileType === "number" && typeof startPath === "string" && typeof raw === "string") {
       return [{
-        id: property, sourceProperty: property, label, value: raw, rawValue: raw, writable: true,
+        id: property, sourceProperty: property, label, value: raw, rawValue: raw, writable,
         deviceFile: { fileType, startPath },
       } satisfies Parameter];
     }
@@ -136,14 +137,14 @@ export function parametersForObject(object: HeadRushObject | undefined, include?
     if (typeof raw === "string" && reflectedChoices.length) {
       return [{
         id: property, sourceProperty: property, label, value: raw, rawValue: raw,
-        choices: reflectedChoices, choiceValues: reflectedChoices, writable: true,
+        choices: reflectedChoices, choiceValues: reflectedChoices, writable,
       } satisfies Parameter];
     }
     if (choices && (typeof raw === "number" || typeof raw === "boolean")) {
       const choiceIndex = typeof raw === "boolean" ? Number(raw) : raw;
       return [{
         id: property, sourceProperty: property, label, value: choices[choiceIndex] ?? String(raw), rawValue: raw,
-        choices, choiceValues: typeof raw === "boolean" ? [false, true] : choices.map((_, index) => index), writable: true,
+        choices, choiceValues: typeof raw === "boolean" ? [false, true] : choices.map((_, index) => index), writable,
       } satisfies Parameter];
     }
     if (typeof raw === "number" && meta.type === "number") {
@@ -153,7 +154,7 @@ export function parametersForObject(object: HeadRushObject | undefined, include?
       return [{
         id: property, sourceProperty: property, label, value: display, rawValue: raw,
         min: Math.min(reflectedMinimum, reflectedMaximum), max: Math.max(reflectedMinimum, reflectedMaximum), step: meta["x-options"]?.grid,
-        unit: unitFromFormat(meta["x-options"]?.format), writable: true, normalized: true,
+        unit: unitFromFormat(meta["x-options"]?.format), writable, normalized: true,
         normalizeAlgo: meta["x-options"]?.normalizeAlgo ?? 0,
         inverted: reflectedMinimum > reflectedMaximum,
       } satisfies Parameter];
@@ -162,10 +163,10 @@ export function parametersForObject(object: HeadRushObject | undefined, include?
       return [{
         id: property, sourceProperty: property, label, value: raw, rawValue: raw,
         min: meta.minimum ?? 0, max: meta.maximum ?? Math.max(127, raw), step: meta["x-options"]?.grid ?? 1,
-        writable: true, normalized: false,
+        writable, normalized: false,
       } satisfies Parameter];
     }
-    return [{ id: property, sourceProperty: property, label, value: raw as Parameter["value"], rawValue: raw as Parameter["value"], writable: true } satisfies Parameter];
+    return [{ id: property, sourceProperty: property, label, value: raw as Parameter["value"], rawValue: raw as Parameter["value"], writable } satisfies Parameter];
   });
 }
 

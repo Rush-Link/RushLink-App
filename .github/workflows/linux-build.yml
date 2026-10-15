@@ -15,8 +15,6 @@ concurrency:
 
 jobs:
   linux:
-    # Keep proprietary sources and preview artifacts in the private repository.
-    if: github.event.repository.private == true
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     env:
@@ -41,8 +39,6 @@ jobs:
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - name: Install locked JavaScript dependencies
         run: npm ci
-      - name: Install browser for release checks
-        run: npx playwright install --with-deps chromium
       - name: Test application
         run: npm test
       - name: Test native Linux transport
@@ -61,7 +57,7 @@ jobs:
           cd release-artifacts/linux-x64
           sha256sum -- *.deb *.AppImage > SHA256SUMS-linux-x64.txt
           sha256sum --check SHA256SUMS-linux-x64.txt
-      - name: Upload private Linux preview
+      - name: Upload Linux preview
         uses: actions/upload-artifact@v4
         with:
           name: RushLink-linux-x64-${{ github.run_number }}

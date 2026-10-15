@@ -14,7 +14,7 @@
       "label": "RushLink: Check tablet layouts and rotation",
       "type": "npm",
       "script": "test:tablet",
-      "detail": "Check app and website tablet sizes, rotation and dialogs in the browser without building an installer.",
+      "detail": "Check app tablet sizes, rotation and dialogs in the browser without building an installer.",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "runOptions": { "instanceLimit": 1 }
@@ -51,7 +51,7 @@
       "label": "RushLink: Build everything (local + Apple Actions)",
       "type": "npm",
       "script": "build:all",
-      "detail": "Build locally, send a private Mac build snapshot to GitHub Actions, and download verified DMGs. No release.",
+      "detail": "Build locally, send a Mac build snapshot to the origin repository's GitHub Actions, and download verified DMGs. No release.",
       "problemMatcher": ["$tsc"],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "runOptions": { "instanceLimit": 1 }
@@ -60,7 +60,7 @@
       "label": "RushLink: Build Mac previews (GitHub Actions)",
       "type": "npm",
       "script": "build:macos",
-      "detail": "Push a private build snapshot, wait for Apple Silicon and Intel builds, and download DMGs. No release.",
+      "detail": "Push a build snapshot to origin, wait for Apple Silicon and Intel builds, and download verified DMGs. No release.",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "runOptions": { "instanceLimit": 1 }
@@ -69,7 +69,7 @@
       "label": "RushLink: Build iPhone and iPad (GitHub Actions)",
       "type": "npm",
       "script": "build:ios",
-      "detail": "Build a private unsigned universal iOS package and simulator app on GitHub, test both device families, and download verified artifacts.",
+      "detail": "Build an unsigned universal iOS package and simulator app on GitHub, test both device families, and download verified artifacts.",
       "problemMatcher": [],
       "presentation": { "reveal": "always", "panel": "dedicated", "clear": true },
       "runOptions": { "instanceLimit": 1 }

@@ -21,16 +21,17 @@ try {
   }
   if (-not (Test-Path -LiteralPath 'dist/index.html')) { throw 'The frontend is missing. Run npm run build:windows.' }
   $version = (Get-Content -LiteralPath 'package.json' -Raw | ConvertFrom-Json).version
+  $productName = (Get-Content -LiteralPath 'src-tauri/tauri.conf.json' -Raw | ConvertFrom-Json).productName
   if ($version -notmatch '^\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$') { throw 'Invalid application version for installer staging.' }
   New-Item -ItemType Directory -Force -Path $toolRoot, $outputRoot | Out-Null
   $reuseConfig = Join-Path $toolRoot 'windows-reuse-frontend.json'
   [IO.File]::WriteAllText($reuseConfig, '{"build":{"beforeBuildCommand":""}}', [Text.UTF8Encoding]::new($false))
   Invoke-WindowsCommand 'npm.cmd' @('run', 'tauri', '--', 'build', '--ci', '--bundles', 'msi,nsis', '--config', $reuseConfig, '--', '--locked')
   $artifacts = foreach ($item in @(
-    @{ folder = 'nsis'; name = "RushLink_${version}_x64-setup.exe" },
-    @{ folder = 'msi'; name = "RushLink_${version}_x64_en-US.msi" }
+    @{ folder = 'nsis'; name = "RushLink_${version}_x64-setup.exe"; sourceName = "${productName}_${version}_x64-setup.exe" },
+    @{ folder = 'msi'; name = "RushLink_${version}_x64_en-US.msi"; sourceName = "${productName}_${version}_x64_en-US.msi" }
   )) {
-    $source = Join-Path $repoRoot "src-tauri/target/release/bundle/$($item.folder)/$($item.name)"
+    $source = Join-Path $repoRoot "src-tauri/target/release/bundle/$($item.folder)/$($item.sourceName)"
     if (-not (Test-Path -LiteralPath $source)) { throw "Expected Windows installer was not built: $source" }
     $destination = Join-Path $outputRoot $item.name
     Copy-Item -LiteralPath $source -Destination $destination -Force

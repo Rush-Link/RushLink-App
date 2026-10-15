@@ -3,20 +3,21 @@ import {
   FileCheck2, GripVertical, Info, ListMusic, LoaderCircle, LockKeyhole, Pencil, Plus, Radio, RefreshCw, RotateCcw,
   Search, ShieldCheck, SlidersHorizontal, Sparkles, Star, Trash2, Waves,
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Dialog, IconButton, Input } from "../components/ui";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Badge, Button, Card, Dialog, IconButton, Input, Select } from "../components/ui";
 import { ParameterControl } from "../components/system/controls";
 import {
   canPlaceTestRigBlock, reservedTestRigSlotForBlock, TEST_RIG_MAX_SLOTS, TEST_RIG_SLOT_ROLES,
   testRigSlotAllowsBlock, testRigSlotRole, validateTestRig,
 } from "../domain/tone-analysis";
 import { BLOCK_CATEGORY_COLORS, BLOCK_CATEGORY_GROUPS, BLOCK_CATEGORY_LABELS, blockBelongsToCategoryGroup, categoryForBlockName, type BlockCategoryGroupId } from "../domain/block-categories";
-import { parametersForObject, SLOT_EQ_PROPERTIES } from "../domain/headrush-reflection";
+import { parameterDeviceValue, parametersForObject, SLOT_EQ_PROPERTIES } from "../domain/headrush-reflection";
 import { testRigModulePath } from "../domain/tone-audition-chain";
+import { isNamModule, namCapacity, namModules, parseNamModule } from "../domain/nam";
 import { cn } from "../lib/utils";
 import { useAppStore } from "../stores/app-store";
 import { deviceApi } from "../services/device-api";
-import type { HeadRushSubtree, Parameter, RigBlock } from "../domain/types";
+import type { HeadRushSubtree, NamPreference, Parameter, RigBlock, TestRigTemplate } from "../domain/types";
 import { useSlotPointerDrag } from "../hooks/use-slot-pointer-drag";
 import { SlotDragPreview } from "../components/system/slot-drag-preview";
 import { WorkspacePanelToggle } from "../components/system/workspace-panel-toggle";
@@ -24,11 +25,87 @@ import { useWorkspacePanel } from "../hooks/use-workspace-panel";
 
 const TEST_RIG_DEMO_MODULES = ["Amp", "ReValver Amp", "Cab", "IR", "Amp Clone", "Pedal Clone", "Neural Amp Modeler", "Gray Comp", "DynIII Comp", "Graphic EQ", "Ten Freq EQ", "Para EQ", "AIR Reverb", "Spring Reverb", "AIR Delay", "Tape Echo", "BBD Delay", "Reverse Delay", "Noise Filter", "Gate", "Stereo Doubler", "Green JRC-OD", "White Boost", "Tri Fuzz", "D1 Dist", "AIR Filter", "Chorus", "Multi Chorus", "Flanger", "Vibe Phaser", "Vibrato", "Rotary", "Tremolo", "Shine Wah", "Black Wah", "Wham", "Smart Harm", "Octaves", "Drop Tune", "Shimmer", "Pitch Delay", "Sustain", "Hold", "Pressor", "G EQ", "FX-Loop"];
 
-const isNamFileParameter = (parameter: Parameter) => Boolean(parameter.deviceFile)
-  || /^(?:LoadedClone|FileMissing)\d*$/i.test(parameter.sourceProperty || parameter.id);
+const isNamFileParameter = (parameter: Parameter) => /^(?:LoadedClone|FileMissing)$/i.test(parameter.sourceProperty || parameter.id)
+  || Boolean(parameter.deviceFile && !/^LoadedClone2$/i.test(parameter.sourceProperty || parameter.id));
 const editableParametersFor = (block: RigBlock | null) => block?.name === "Capture slot"
   ? block.parameters.filter((parameter) => !isNamFileParameter(parameter))
   : block?.parameters ?? [];
+
+export function TestRigNamSettings({ rig }: { rig: TestRigTemplate }) {
+  const store = useAppStore();
+  const reflectedTypes = store.liveSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
+  const hosts = namModules(Array.isArray(reflectedTypes) ? reflectedTypes.map(String) : []);
+  const capacity = namCapacity(Array.isArray(reflectedTypes) ? reflectedTypes.map(String) : []);
+  const instance = rig.namInstance ?? 1;
+  const host = hosts.find((candidate) => candidate.instance === instance);
+  const capture = rig.blocks.find((block) => block.name === "Capture slot");
+  const hostName = host?.name ?? (parseNamModule(capture?.model ?? "")?.instance === instance ? capture?.model : undefined);
+  const hostPath = hostName ? testRigModulePath(hostName) : undefined;
+  const reflectedHost = hostPath ? store.liveSubtree?.[hostPath] : undefined;
+  const hydrationSignature = JSON.stringify([rig.id, instance, hostPath, reflectedHost?.meta, reflectedHost?.value?.order, reflectedHost?.value?.labels, reflectedHost?.value?.disabled]);
+  const hydratedSignature = useRef("");
+  useEffect(() => {
+    if (!reflectedHost || !hostPath || hydratedSignature.current === hydrationSignature) return;
+    const current = useAppStore.getState();
+    if (current.selectedTestRigId !== rig.id) return;
+    const marker = current.testRigs.find((item) => item.id === rig.id)?.blocks.find((block) => block.name === "Capture slot");
+    if (!marker) return;
+    const order = Array.isArray(reflectedHost.value?.order) ? reflectedHost.value.order.filter((value): value is string => typeof value === "string") : [];
+    const reflected = parametersForObject(reflectedHost, [...new Set([...order, ...Object.keys(reflectedHost.meta?.properties ?? {}), ...SLOT_EQ_PROPERTIES])]);
+    if (!reflected.length) return;
+    hydratedSignature.current = hydrationSignature;
+    const doubling = marker.parameters.find((parameter) => (parameter.sourceProperty ?? parameter.id) === "Doubling");
+    const doubled = doubling ? parameterDeviceValue(doubling, doubling.value) === true : false;
+    const liveSingle = reflectedHost.value?.Doubling === false;
+    const disabled = Array.isArray(reflectedHost.value?.disabled) ? reflectedHost.value.disabled : [];
+    const parameters = reflected.filter((parameter) => !isNamFileParameter(parameter)).map((parameter) => {
+      const property = parameter.sourceProperty ?? parameter.id;
+      const previous = marker.parameters.find((candidate) => (candidate.sourceProperty ?? candidate.id) === property);
+      let value = previous?.value ?? (parameter.deviceFile ? "" : parameter.value);
+      if (previous && parameter.choices) {
+        const raw = parameterDeviceValue(previous, previous.value);
+        const choiceIndex = parameter.choiceValues?.findIndex((choice) => choice === raw) ?? -1;
+        value = choiceIndex >= 0 ? parameter.choices[choiceIndex] : parameter.choices.includes(String(value)) ? value : parameter.value;
+      } else if (previous?.choices && typeof parameter.value !== "string") {
+        const raw = parameterDeviceValue(previous, previous.value);
+        if (typeof raw === typeof parameter.value) value = raw as Parameter["value"];
+      }
+      // Secondary controls are visible before doubling is enabled. Their saved
+      // file stays empty until explicitly chosen, regardless of the live rig.
+      const doubleDependent = parameter.deviceFile || /^(?:Input|Output|Threshold|Gate|EQ|Bass|Middle|Treble)2$/.test(property)
+        || (property === "LightMode2" && !disabled.includes("LightMode"));
+      const writable = /2$/.test(property)
+        ? doubled && (parameter.writable !== false || Boolean(liveSingle && doubleDependent))
+        : parameter.writable;
+      if (writable === false && /^LightMode2?$/.test(property)) value = parameter.value;
+      return { ...parameter, value, rawValue: previous?.rawValue ?? parameter.rawValue, writable, deviceObjectPath: hostPath };
+    });
+    // Live polling can replace an unchanged reflection object. Only save a
+    // changed schema so hydration does not schedule repeated audition writes.
+    if (marker.sourcePath !== hostPath || JSON.stringify(marker.parameters) !== JSON.stringify(parameters)) {
+      current.updateTestRigBlock(marker.id, { parameters, sourcePath: hostPath });
+    }
+  }, [hydrationSignature, hostPath]);
+  const hostSlots = Array.from(new Set([...hosts.map((host) => host.instance), instance])).sort((a, b) => a - b);
+  const architectures = [...new Set(Object.values(store.toneModels).flatMap((models) => models.map((model) => model.architecture).filter(Boolean)))].sort();
+  const captureSlot = rig.captureSlot ?? 6;
+  const slotChoices = Array.from({ length: TEST_RIG_MAX_SLOTS }, (_, slot) => {
+    const occupant = rig.blocks.find((block) => block.slot === slot && block.name !== "Capture slot");
+    const reserved = testRigSlotRole(slot, captureSlot);
+    const disabled = slot < 1 || slot > TEST_RIG_MAX_SLOTS - 2 || Boolean(occupant && ["input", "output"].includes(occupant.category)) || Boolean(reserved && reserved.id !== "nam");
+    return { slot, occupant, disabled };
+  });
+  return <section className="tp-nam-settings" aria-label="NAM audition settings">
+    <header><Waves size={17}/><span><strong>NAM audition host</strong><small>Choose the preferred model, device host and position in this test chain.</small></span></header>
+    <div className="tp-nam-settings__fields">
+      <label><span>Preferred NAM model</span><Select value={rig.namPreference ?? "auto"} onChange={(event) => store.updateTestRigDetails({ namPreference: event.target.value as NamPreference })}><option value="auto">Use selected model</option><option value="nam2">NAM2 / A2 Full</option><option value="nam2-lite">NAM2 / A2 Lite</option><option value="other">Other model architecture</option></Select></label>
+      {rig.namPreference === "other" && <label><span>Model architecture</span><Input list={`nam-architectures-${rig.id}`} value={rig.namOtherModel ?? ""} placeholder="e.g. A1" onChange={(event) => store.updateTestRigDetails({ namOtherModel: event.target.value })}/><datalist id={`nam-architectures-${rig.id}`}>{architectures.map((architecture) => <option key={architecture} value={architecture}/>)}</datalist></label>}
+      <label><span>NAM DSP host</span><Select value={instance} onChange={(event) => store.updateTestRigDetails({ namInstance: Number(event.target.value) })}>{hostSlots.map((slot) => <option key={slot} value={slot}>NAM host {slot}{hosts.some((host) => host.instance === slot) ? "" : " (not reflected)"}</option>)}</Select></label>
+      <label><span>Audition chain slot</span><Select value={captureSlot} onChange={(event) => store.updateTestRigDetails({ captureSlot: Number(event.target.value) })}>{slotChoices.map(({ slot, occupant, disabled }) => <option key={slot} value={slot} disabled={disabled}>Slot {slot + 1}{occupant ? ` · ${occupant.name}` : ""}</option>)}</Select></label>
+    </div>
+    <p>{hosts.length ? `${hosts.length} NAM DSP ${hosts.length === 1 ? "host is" : "hosts are"} available: up to ${capacity.maxA2FullFiles} Full NAM files or ${capacity.maxA2LiteFiles} Lite files. ` : "Connect the device to discover its available NAM hosts. "}Enable doubling on a host to use its second file; Lite mode may be required by the complete chain. Model preferences use an available match, falling back to the selected model.</p>
+  </section>;
+}
 
 export function TestRigParameterEditor({ parameters, onChange, onPreview }: { parameters: Parameter[]; onChange: (parameterId: string, value: Parameter["value"]) => void; onPreview?: (parameter: Parameter, value: Parameter["value"]) => Promise<void> | void }) {
   // Some dual-cab models advertise identical labels for both channels. Keep
@@ -65,7 +142,7 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
   const [controlsBusy, setControlsBusy] = useState(false);
   const slotDrag = useSlotPointerDrag<string>((blockId, slot) => store.moveTestRigBlock(blockId, slot), (blockId, slot) => {
     const block = rig?.blocks.find((item) => item.id === blockId);
-    return Boolean(rig && block && canPlaceTestRigBlock(rig.blocks, block, slot));
+    return Boolean(rig && block && canPlaceTestRigBlock(rig.blocks, block, slot, rig.captureSlot));
   });
   const selectedBlock = rig?.blocks.find((block) => block.id === selectedBlockId) ?? null;
   const draggedBlock = rig?.blocks.find((block) => block.id === slotDrag.dragSource) ?? null;
@@ -74,11 +151,14 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
   const choices = useMemo(() => moduleTypes.flatMap((entry, index) => {
     const name = String(entry);
     const moduleTypeId = reflectedTypes.length ? index : index + 1;
-    if (!name || name === "Empty Slot" || name.endsWith(" 2")) return [];
+    if (!name || name === "Empty Slot" || (name.endsWith(" 2") && !isNamModule(name))) return [];
     const blockCategory = categoryForBlockName(name);
     return [{ name, moduleTypeId, category: blockCategory, color: BLOCK_CATEGORY_COLORS[blockCategory] }];
   }), [moduleTypes, reflectedTypes.length]);
-  const compatibleChoices = useMemo(() => choices.filter((choice) => targetSlot === null || testRigSlotAllowsBlock(targetSlot, { ...choice, model: choice.name })), [choices, targetSlot]);
+  const compatibleChoices = useMemo(() => choices.filter((choice) => targetSlot === null || testRigSlotAllowsBlock(targetSlot, { ...choice, model: choice.name }, rig?.captureSlot)), [choices, targetSlot, rig?.captureSlot]);
+  const unavailableNamHosts = new Set(rig?.blocks.filter((block) => block.slot !== targetSlot && (block.name === "Capture slot" || isNamModule(block.model))).map((block) => block.name === "Capture slot" ? rig.namInstance ?? 1 : parseNamModule(block.model)?.instance));
+  const namDuplicationUnavailable = Boolean(selectedBlock && isNamModule(selectedBlock.model)
+    && !namModules(moduleTypes.map(String)).some((host) => !unavailableNamHosts.has(host.instance) && host.instance !== parseNamModule(selectedBlock.model)?.instance));
   const visibleCategoryGroups = useMemo(() => BLOCK_CATEGORY_GROUPS.filter((group) => compatibleChoices.some((choice) => blockBelongsToCategoryGroup(choice.name, group.id))), [compatibleChoices]);
   const filteredChoices = useMemo(() => compatibleChoices.filter((choice) => {
     const categoryMatch = category === "all" || category === "favorites"
@@ -96,8 +176,11 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
 
   useEffect(() => { setCategory("all"); }, [targetSlot]);
 
-  const reflectedParameters = async (name: string, captureHost = false) => {
-    const path = testRigModulePath(name);
+  const blockPath = (block: RigBlock) => block.name === "Capture slot"
+    ? testRigModulePath(namModules(moduleTypes.map(String)).find((host) => host.instance === (rig?.namInstance ?? 1))?.name ?? block.model)
+    : block.sourcePath ?? testRigModulePath(block.model);
+  const reflectedParameters = async (name: string, captureHost = false, sourcePath?: string) => {
+    const path = sourcePath ?? testRigModulePath(name);
     let tree = store.liveSubtree;
     if (deviceApi.isNative()) {
       try { tree = { ...(tree ?? {}), ...(await deviceApi.subtree(path) as HeadRushSubtree) }; }
@@ -114,7 +197,7 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
 
   const chooseBlock = async (choice: typeof choices[number]) => {
     if (targetSlot === null || !rig) return;
-    if (!testRigSlotAllowsBlock(targetSlot, { ...choice, model: choice.name })) return;
+    if (!testRigSlotAllowsBlock(targetSlot, { ...choice, model: choice.name }, rig.captureSlot)) return;
     const occupant = rig.blocks.find((block) => block.slot === targetSlot);
     if (occupant && (occupant.name === "Capture slot" || ["input", "output"].includes(occupant.category))) return;
     setCatalogueBusy(choice.name);
@@ -134,20 +217,22 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
     if (!selectedBlock || ["input", "output"].includes(selectedBlock.category)) return;
     setControlsBusy(true);
     try {
-      const parameters = await reflectedParameters(selectedBlock.model, selectedBlock.name === "Capture slot");
-      store.updateTestRigBlock(selectedBlock.id, { parameters, sourcePath: testRigModulePath(selectedBlock.model) });
+      const sourcePath = blockPath(selectedBlock);
+      const parameters = await reflectedParameters(selectedBlock.model, selectedBlock.name === "Capture slot", sourcePath);
+      store.updateTestRigBlock(selectedBlock.id, { parameters, sourcePath });
     } finally { setControlsBusy(false); }
   };
 
   const live = Boolean(store.auditioningToneId && deviceApi.isNative());
   const previewTestRigFile = live && selectedBlock ? async (parameter: Parameter, value: Parameter["value"]) => {
-    const response = await deviceApi.setProperties(testRigModulePath(selectedBlock.model), { [parameter.sourceProperty ?? parameter.id]: value });
+    const response = await deviceApi.setProperties(blockPath(selectedBlock), { [parameter.sourceProperty ?? parameter.id]: value });
     if (response.status < 200 || response.status >= 300) throw new Error(`Flex Prime rejected ${parameter.label} with status ${response.status}.`);
   } : undefined;
   const protectedBlock = selectedBlock && (selectedBlock.name === "Capture slot" || ["input", "output"].includes(selectedBlock.category));
   const boundaryBlock = selectedBlock && ["input", "output"].includes(selectedBlock.category);
   const editableParameters = editableParametersFor(selectedBlock);
-  const validation = rig ? validateTestRig(rig.blocks) : null;
+  const validation = rig ? validateTestRig(rig.blocks, rig.captureSlot) : null;
+  const slotRoles = TEST_RIG_SLOT_ROLES.map((role) => role.id === "nam" ? { ...role, slot: rig?.captureSlot ?? role.slot } : role);
 
   return <Dialog open={open} onClose={onClose} title={rig ? `Edit ${rig.name}` : "Edit Test Rig"} description="Build the complete temporary signal path. Changes save to RushLink automatically and update an active Flex Prime audition after a short debounce." width="1240px" footer={<><span className={cn("tp-editor-sync", live && "live", store.testRigSyncError && "error")}><Radio size={13}/>{store.testRigSyncBusy ? "Applying to Flex Prime…" : store.testRigSyncError ? store.testRigSyncError : live ? "Live apply is on" : "Saved locally · audition to apply"}</span><Button variant="primary" onClick={onClose}><Check size={15}/> Done</Button></>}>
     {!rig ? <div className="tp-full-editor-empty"><AlertTriangle/><strong>No Test Rig selected</strong></div> : <div className="tp-full-editor">
@@ -157,15 +242,17 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
         <div className={cn("tp-editor-validity", !validation?.valid && "invalid")}>{validation?.valid ? <Check size={15}/> : <AlertTriangle size={15}/>}<span><strong>{validation?.valid ? "Ready to audition" : "Plan needs attention"}</strong><small>{validation?.valid ? `${rig.blocks.length}/${TEST_RIG_MAX_SLOTS} slots used` : validation?.errors[0]}</small></span></div>
       </section>
 
+      <TestRigNamSettings rig={rig}/>
+
       <section className="tp-full-editor__chain" aria-label="Test Rig signal chain">
-        <header><span><GripVertical size={16}/><strong>14-slot temporary chain</strong><small>Three fixed host positions keep every audition consistent.</small></span><Badge tone={live ? "green" : "cyan"}>{live ? "LIVE DEVICE" : "LOCAL PLAN"}</Badge></header>
-        <div className="tp-slot-role-strip" aria-label="Fixed Test Rig slot roles">{TEST_RIG_SLOT_ROLES.map((role) => <span key={role.id}><small>SLOT {role.slot + 1}</small><strong>{role.shortLabel}</strong><b>{role.description}</b></span>)}</div>
+        <header><span><GripVertical size={16}/><strong>14-slot temporary chain</strong><small>The audition host uses your chosen position; additional NAM hosts can be added around it.</small></span><Badge tone={live ? "green" : "cyan"}>{live ? "LIVE DEVICE" : "LOCAL PLAN"}</Badge></header>
+        <div className="tp-slot-role-strip" aria-label="Test Rig slot roles">{slotRoles.map((role) => <span key={role.id}><small>SLOT {role.slot + 1}</small><strong>{role.shortLabel}</strong><b>{role.description}</b></span>)}</div>
         <div className="tp-editor-slots">{Array.from({ length: TEST_RIG_MAX_SLOTS }, (_, slot) => {
           const block = rig.blocks.find((item) => item.slot === slot);
-          const role = testRigSlotRole(slot);
+          const role = testRigSlotRole(slot, rig.captureSlot);
           if (!block) return <button key={slot} data-chain-slot={slot} data-context-kind="test-rig-slot" data-slot={slot} className={cn("tp-editor-slot empty", role && "reserved", targetSlot === slot && "target", slotDrag.dragTarget === slot && "drop-target")} onClick={() => { if (slotDrag.consumeClick()) return; setTargetSlot(slot); setSelectedBlockId(""); }}><small>{String(slot + 1).padStart(2, "0")}</small><Plus size={16}/><span>{role?.label ?? "Add block"}</span>{role && <b>{role.shortLabel} ONLY</b>}</button>;
           const locked = block.name === "Capture slot" || ["input", "output"].includes(block.category);
-          const positionLocked = locked || reservedTestRigSlotForBlock(block) !== null;
+          const positionLocked = locked || reservedTestRigSlotForBlock(block, rig.captureSlot) !== null;
           return <button key={block.id} data-chain-slot={slot} data-context-kind="test-rig-block" data-block-id={block.id} data-slot={slot} data-locked={positionLocked ? "true" : "false"} className={cn("tp-editor-slot", role && "reserved", selectedBlockId === block.id && "selected", !block.enabled && "bypassed", positionLocked && "locked", slotDrag.dragSource === block.id && "drag-source", slotDrag.dragTarget === slot && "drop-target")} style={{ "--block-color": block.color } as React.CSSProperties} onPointerDown={(event) => slotDrag.onPointerDown(event, block.id, positionLocked)} onClick={() => { if (slotDrag.consumeClick()) return; setSelectedBlockId(block.id); setTargetSlot(slot); }}><small>{String(slot + 1).padStart(2, "0")}</small><i/>{positionLocked ? <LockKeyhole size={14}/> : <GripVertical size={14}/>}<strong>{block.name}</strong><span>{block.model}</span><b>{block.name === "Capture slot" ? "NAM HOST" : role ? role.shortLabel : block.enabled ? "ON" : "OFF"}</b></button>;
         })}</div>
       </section>
@@ -175,14 +262,14 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
           <header><span><SlidersHorizontal size={17}/><span><strong>{selectedBlock ? selectedBlock.name : `Empty slot ${(targetSlot ?? 0) + 1}`}</strong><small>{selectedBlock ? `${BLOCK_CATEGORY_LABELS[selectedBlock.category]} · slot ${selectedBlock.slot + 1}` : "Choose a device block from the catalogue"}</small></span></span></header>
           {selectedBlock ? <>
             <div className="tp-editor-block-actions">
-              <Button size="sm" disabled={!canPlaceTestRigBlock(rig.blocks, selectedBlock, selectedBlock.slot - 1)} onClick={() => store.moveTestRigBlock(selectedBlock.id, selectedBlock.slot - 1)}><ArrowLeft size={14}/> Move</Button>
-              <Button size="sm" disabled={!canPlaceTestRigBlock(rig.blocks, selectedBlock, selectedBlock.slot + 1)} onClick={() => store.moveTestRigBlock(selectedBlock.id, selectedBlock.slot + 1)}>Move <ArrowRight size={14}/></Button>
-              <Button size="sm" disabled={Boolean(protectedBlock) || reservedTestRigSlotForBlock(selectedBlock) !== null || rig.blocks.length >= TEST_RIG_MAX_SLOTS} onClick={() => store.duplicateTestRigBlock(selectedBlock.id)}><Copy size={14}/> Duplicate</Button>
+              <Button size="sm" disabled={!canPlaceTestRigBlock(rig.blocks, selectedBlock, selectedBlock.slot - 1, rig.captureSlot)} onClick={() => store.moveTestRigBlock(selectedBlock.id, selectedBlock.slot - 1)}><ArrowLeft size={14}/> Move</Button>
+              <Button size="sm" disabled={!canPlaceTestRigBlock(rig.blocks, selectedBlock, selectedBlock.slot + 1, rig.captureSlot)} onClick={() => store.moveTestRigBlock(selectedBlock.id, selectedBlock.slot + 1)}>Move <ArrowRight size={14}/></Button>
+              <Button size="sm" disabled={Boolean(protectedBlock) || namDuplicationUnavailable || reservedTestRigSlotForBlock(selectedBlock, rig.captureSlot) !== null || rig.blocks.length >= TEST_RIG_MAX_SLOTS} onClick={() => store.duplicateTestRigBlock(selectedBlock.id)}><Copy size={14}/> Duplicate</Button>
               <Button size="sm" disabled={Boolean(protectedBlock)} onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={14}/> : <Check size={14}/>} {selectedBlock.enabled ? "Bypass" : "Enable"}</Button>
               <IconButton label={`Remove ${selectedBlock.name}`} disabled={Boolean(protectedBlock)} onClick={() => { store.removeTestRigBlock(selectedBlock.id); setSelectedBlockId(""); }}><Trash2 size={15}/></IconButton>
             </div>
             {boundaryBlock ? <div className="tp-editor-protected"><LockKeyhole size={18}/><span><strong>Signal boundary</strong><small>Input and output are visual references and cannot be removed or replaced.</small></span></div> : <>
-              {selectedBlock.name === "Capture slot" && <div className="tp-editor-protected tp-editor-protected--nam"><LockKeyhole size={18}/><span><strong>NAM host position and file are protected</strong><small>ToneMod supplies the auditioned NAM file. Every sound-shaping control below remains editable.</small></span></div>}
+              {selectedBlock.name === "Capture slot" && <div className="tp-editor-protected tp-editor-protected--nam"><LockKeyhole size={18}/><span><strong>Auditioned NAM file is protected</strong><small>ToneMod supplies the primary NAM file. Choose its chain position above; sound-shaping controls and a second file remain editable.</small></span></div>}
               <div className="tp-editor-parameter-head"><span><strong>{selectedBlock.name === "Capture slot" ? "NAM host controls" : "Block controls"}</strong><small>{editableParameters.length ? `${editableParameters.length} editable controls` : "No saved parameter schema"}</small></span><Button size="sm" loading={controlsBusy} onClick={() => void refreshControls()}><RefreshCw size={13}/> Read from device</Button></div>
               {editableParameters.length ? <TestRigParameterEditor parameters={editableParameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <div className="tp-editor-no-parameters"><SlidersHorizontal size={19}/><span><strong>Controls are not cached yet</strong><small>Read the reflected control schema from Flex Prime, or audition this plan first.</small></span></div>}
             </>}
@@ -190,12 +277,14 @@ export function TestRigEditorDialog({ open, onClose }: { open: boolean; onClose:
         </section>
 
         <section className="tp-editor-catalogue">
-          <header><span><Sparkles size={17}/><span><strong>Compatible blocks</strong><small>{targetSlot === null ? "Select a chain slot" : testRigSlotRole(targetSlot)?.description ?? `${filteredChoices.length} compatible effect types`}</small></span></span>{targetSlot !== null && <Badge tone="cyan">{selectedBlock && !protectedBlock ? "REPLACE" : "ADD"} SLOT {targetSlot + 1}</Badge>}</header>
+          <header><span><Sparkles size={17}/><span><strong>Compatible blocks</strong><small>{targetSlot === null ? "Select a chain slot" : testRigSlotRole(targetSlot, rig.captureSlot)?.description ?? `${filteredChoices.length} compatible effect types`}</small></span></span>{targetSlot !== null && <Badge tone="cyan">{selectedBlock && !protectedBlock ? "REPLACE" : "ADD"} SLOT {targetSlot + 1}</Badge>}</header>
           <div className="tp-editor-search"><Search size={15}/><Input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search blocks…"/></div>
           <nav className="tp-editor-categories" aria-label="Block categories"><button className={category === "all" ? "active" : ""} onClick={() => setCategory("all")}>All</button><button className={category === "favorites" ? "active" : ""} onClick={() => setCategory("favorites")}><Star size={12}/> Favourites</button>{visibleCategoryGroups.map((group) => <button key={group.id} className={category === group.id ? "active" : ""} style={{ "--category-color": BLOCK_CATEGORY_COLORS[group.categories[0]] } as React.CSSProperties} onClick={() => setCategory(group.id)}>{group.label}</button>)}</nav>
           <div className="tp-editor-results">{filteredChoices.map((choice) => {
             const favourite = store.favoriteBlockNames.includes(choice.name);
-            return <div key={`${choice.moduleTypeId}-${choice.name}`} style={{ "--block-color": choice.color } as React.CSSProperties}><button disabled={targetSlot === null || Boolean(protectedBlock) || Boolean(catalogueBusy)} onClick={() => void chooseBlock(choice)}><i/>{catalogueBusy === choice.name ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>}<span><small>{BLOCK_CATEGORY_LABELS[choice.category]}</small><strong>{choice.name}</strong></span></button><IconButton className={favourite ? "favorite" : ""} label={`${favourite ? "Remove" : "Add"} ${choice.name} ${favourite ? "from" : "to"} favourites`} onClick={() => store.toggleFavoriteBlock(choice.name)}><Star size={13} fill={favourite ? "currentColor" : "none"}/></IconButton></div>;
+            const namHost = parseNamModule(choice.name);
+            const hostInUse = Boolean(namHost && unavailableNamHosts.has(namHost.instance));
+            return <div key={`${choice.moduleTypeId}-${choice.name}`} style={{ "--block-color": choice.color } as React.CSSProperties}><button disabled={targetSlot === null || Boolean(protectedBlock) || Boolean(catalogueBusy) || hostInUse} title={hostInUse ? "This NAM host is already used in the test chain" : undefined} onClick={() => void chooseBlock(choice)}><i/>{catalogueBusy === choice.name ? <LoaderCircle className="spin" size={16}/> : <Plus size={16}/>}<span><small>{namHost ? `NAM host ${namHost.instance}${hostInUse ? " · in chain" : ""}` : BLOCK_CATEGORY_LABELS[choice.category]}</small><strong>{choice.name}</strong></span></button><IconButton className={favourite ? "favorite" : ""} label={`${favourite ? "Remove" : "Add"} ${choice.name} ${favourite ? "from" : "to"} favourites`} onClick={() => store.toggleFavoriteBlock(choice.name)}><Star size={13} fill={favourite ? "currentColor" : "none"}/></IconButton></div>;
           })}</div>
           {!filteredChoices.length && <div className="tp-editor-catalogue-empty"><Search size={20}/><strong>No matching blocks</strong><span>Try a broader search or choose another category.</span></div>}
         </section>
@@ -214,13 +303,13 @@ export function ToneModTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
     ? testSet.rigIds.map((id) => store.testRigs.find((item) => item.id === id)).filter(Boolean) as typeof store.testRigs
     : [], [testSet, store.testRigs]);
   const available = testSet ? store.testRigs.filter((item) => !testSet.rigIds.includes(item.id)) : [];
-  const validation = rig ? validateTestRig(rig.blocks) : null;
+  const validation = rig ? validateTestRig(rig.blocks, rig.captureSlot) : null;
   const captureSlot = validation?.captureSlot === null || validation?.captureSlot === undefined ? null : validation.captureSlot + 1;
   const sortedBlocks = useMemo(() => rig ? [...rig.blocks].sort((left, right) => left.slot - right.slot) : [], [rig]);
   const [selectedBlockId, setSelectedBlockId] = useState("");
   const slotDrag = useSlotPointerDrag<string>((blockId, slot) => store.moveTestRigBlock(blockId, slot), (blockId, slot) => {
     const block = rig?.blocks.find((item) => item.id === blockId);
-    return Boolean(rig && block && canPlaceTestRigBlock(rig.blocks, block, slot));
+    return Boolean(rig && block && canPlaceTestRigBlock(rig.blocks, block, slot, rig.captureSlot));
   });
   const [setDialog, setSetDialog] = useState<"new" | "rename" | null>(null);
   const [setName, setSetName] = useState("");
@@ -229,7 +318,10 @@ export function ToneModTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
   const selectedBlockParameters = editableParametersFor(selectedBlock);
   const draggedBlock = rig?.blocks.find((block) => block.id === slotDrag.dragSource) ?? null;
   const previewTestRigFile = store.auditioningToneId && deviceApi.isNative() && selectedBlock ? async (parameter: Parameter, value: Parameter["value"]) => {
-    const response = await deviceApi.setProperties(testRigModulePath(selectedBlock.model), { [parameter.sourceProperty ?? parameter.id]: value });
+    const moduleTypes = store.liveSubtree?.["/Evil/API/Blocks"]?.value?.ModuleTypes;
+    const host = namModules(Array.isArray(moduleTypes) ? moduleTypes.map(String) : []).find((item) => item.instance === (rig?.namInstance ?? 1));
+    const path = selectedBlock.name === "Capture slot" ? testRigModulePath(host?.name ?? selectedBlock.model) : selectedBlock.sourcePath ?? testRigModulePath(selectedBlock.model);
+    const response = await deviceApi.setProperties(path, { [parameter.sourceProperty ?? parameter.id]: value });
     if (response.status < 200 || response.status >= 300) throw new Error(`Flex Prime rejected ${parameter.label} with status ${response.status}.`);
   } : undefined;
 
@@ -267,7 +359,7 @@ export function ToneModTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
         <div className="tp-panel-heading"><span><ListMusic size={17}/><span><strong>{testSet.name}</strong><small>Local test run · {ordered.length} plans</small></span></span><span className="tp-test-set-tools"><IconButton label="Rename test set" onClick={() => { setSetName(testSet.name); setSetDialog("rename"); }}><Pencil size={13}/></IconButton><IconButton disabled={store.testRigSets.length <= 1} label="Delete test set" onClick={() => store.deleteTestRigSet()}><Trash2 size={13}/></IconButton><IconButton label="New test set" onClick={() => { setSetName(""); setSetDialog("new"); }}><Plus size={14}/></IconButton></span></div>
         <div className="tp-test-set-tabs">{store.testRigSets.map((item) => <button key={item.id} className={item.id === testSet.id ? "active" : ""} onClick={() => store.selectTestRigSet(item.id)}>{item.name}<small>{item.rigIds.length}</small></button>)}</div>
         <div className="tp-test-set-items">{ordered.map((item, index) => {
-          const itemValidation = validateTestRig(item.blocks);
+          const itemValidation = validateTestRig(item.blocks, item.captureSlot);
           return <div key={item.id} className={cn("tp-test-set-row", item.id === rig.id && "active", !itemValidation.valid && "invalid")}>
             <button className="tp-set-select" onClick={() => store.selectTestRig(item.id)}><span className="tp-set-number">{String(index + 1).padStart(2, "0")}</span><span><strong>{item.name}</strong>{!itemValidation.valid && <small>{itemValidation.errors[0]}</small>}</span></button>
             <span className="tp-set-actions"><IconButton disabled={index === 0} label="Move up" onClick={() => store.moveTestRigInSetlist(index, index - 1)}><ArrowUp size={13}/></IconButton><IconButton disabled={index === ordered.length - 1} label="Move down" onClick={() => store.moveTestRigInSetlist(index, index + 1)}><ArrowDown size={13}/></IconButton><IconButton label="Remove from test run" onClick={() => store.removeTestRigFromSetlist(item.id)}><Trash2 size={13}/></IconButton></span>
@@ -278,6 +370,7 @@ export function ToneModTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
       </Card>
 
       <div className="tp-rig-config">
+        <TestRigNamSettings rig={rig}/>
         <Card className={cn("tp-slot-guide", !validation?.valid && "invalid")}>
           <div className="tp-slot-guide__icon">{validation?.valid ? <Check size={20}/> : <AlertTriangle size={20}/>}</div><div><small>TEST RIG STATUS</small><strong>{validation?.valid ? `Capture marker in plan slot ${captureSlot}` : "Test Rig needs attention"}</strong><span>{validation?.valid ? "Audition will apply these surrounding blocks to the temporary device chain." : validation?.errors[0]}</span></div><Badge tone={validation?.valid ? "cyan" : "red"}>{validation?.valid ? `${rig.blocks.length}/${TEST_RIG_MAX_SLOTS} USED` : "INVALID"}</Badge>
         </Card>
@@ -285,18 +378,18 @@ export function ToneModTestRigStudio({ onBrowse }: { onBrowse: () => void }) {
 
         <Card className="tp-chain-editor">
           <div className="tp-panel-heading"><span><SlidersHorizontal size={17}/><span><strong>{rig.name}</strong><small>{rig.description}</small></span></span><span className="tp-chain-heading-actions"><Badge>{rig.blocks.filter((block) => block.enabled).length} planned active</Badge><Button size="sm" onClick={() => setEditorOpen(true)}><Pencil size={13}/> Full editor</Button></span></div>
-          <div className="tp-slot-role-strip tp-slot-role-strip--compact" aria-label="Fixed Test Rig slot roles">{TEST_RIG_SLOT_ROLES.map((role) => <span key={role.id}><small>{role.slot + 1}</small><strong>{role.shortLabel}</strong></span>)}</div>
+          <div className="tp-slot-role-strip tp-slot-role-strip--compact" aria-label="Test Rig slot roles">{TEST_RIG_SLOT_ROLES.map((role) => <span key={role.id}><small>{(role.id === "nam" ? rig.captureSlot ?? role.slot : role.slot) + 1}</small><strong>{role.shortLabel}</strong></span>)}</div>
           <div className="tp-config-chain tp-config-chain--slots">{Array.from({ length: TEST_RIG_MAX_SLOTS }, (_, slot) => {
             const block = sortedBlocks.find((item) => item.slot === slot);
-            const role = testRigSlotRole(slot);
+            const role = testRigSlotRole(slot, rig.captureSlot);
             if (!block) return <span key={slot} data-chain-slot={slot} data-context-kind="test-rig-slot" data-slot={slot} className={cn("tp-config-slot-empty", role && "reserved", slotDrag.dragTarget === slot && "drop-target")}><small>{slot + 1}</small><i/>{role && <b>{role.shortLabel}</b>}</span>;
             const protectedBlock = block.name === "Capture slot" || ["input", "output"].includes(block.category);
-            const positionLocked = protectedBlock || reservedTestRigSlotForBlock(block) !== null;
+            const positionLocked = protectedBlock || reservedTestRigSlotForBlock(block, rig.captureSlot) !== null;
             return <button key={block.id} data-chain-slot={slot} data-context-kind="test-rig-block" data-block-id={block.id} data-slot={slot} data-locked={positionLocked ? "true" : "false"} className={cn("tp-config-block", role && "reserved", selectedBlock?.id === block.id && "selected", !block.enabled && "bypassed", positionLocked && "position-locked", protectedBlock && "capture", slotDrag.dragSource === block.id && "drag-source", slotDrag.dragTarget === slot && "drop-target")} style={{ "--block-color": block.color } as React.CSSProperties} onPointerDown={(event) => slotDrag.onPointerDown(event, block.id, positionLocked)} onClick={() => { if (!slotDrag.consumeClick()) setSelectedBlockId(block.id); }}>
               <i/><span><small>SLOT {slot + 1}</small><strong>{block.name}</strong><small>{block.model}</small></span><em className="tp-config-drag-state">{positionLocked ? <LockKeyhole size={12}/> : <GripVertical size={13}/>}</em><b data-no-chain-drag onClick={(event) => { event.stopPropagation(); if (!protectedBlock) store.toggleTestRigBlock(block.id); }}>{protectedBlock ? <LockKeyhole size={13}/> : block.enabled ? "ON" : "OFF"}</b>
             </button>;
           })}</div>
-          {selectedBlock && <div className="tp-block-settings"><div><span><strong>{selectedBlock.name}</strong><small>{selectedBlock.name === "Capture slot" ? "Fixed NAM host · profile file is managed by audition" : `Slot ${selectedBlock.slot + 1} · ${selectedBlock.enabled ? "planned active" : "planned bypassed"}`}</small></span>{selectedBlock.name !== "Capture slot" && <Button size="sm" onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={13}/> : <Check size={13}/>} {selectedBlock.enabled ? "Bypass in plan" : "Enable in plan"}</Button>}</div>{selectedBlockParameters.length ? <TestRigParameterEditor parameters={selectedBlockParameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <p>No editable parameters are available for this block yet.</p>}</div>}
+          {selectedBlock && <div className="tp-block-settings"><div><span><strong>{selectedBlock.name}</strong><small>{selectedBlock.name === "Capture slot" ? "Audition host · primary profile file is managed by audition" : `Slot ${selectedBlock.slot + 1} · ${selectedBlock.enabled ? "planned active" : "planned bypassed"}`}</small></span>{selectedBlock.name !== "Capture slot" && <Button size="sm" onClick={() => store.toggleTestRigBlock(selectedBlock.id)}>{selectedBlock.enabled ? <CircleOff size={13}/> : <Check size={13}/>} {selectedBlock.enabled ? "Bypass in plan" : "Enable in plan"}</Button>}</div>{selectedBlockParameters.length ? <TestRigParameterEditor parameters={selectedBlockParameters} onChange={(parameterId, value) => store.updateTestRigParameter(selectedBlock.id, parameterId, value)} onPreview={previewTestRigFile}/> : <p>No editable parameters are available for this block yet.</p>}</div>}
         </Card>
       </div>
     </div>
