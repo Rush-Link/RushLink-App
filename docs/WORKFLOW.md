@@ -92,6 +92,12 @@ each file; different platforms may represent different build runs. Android APKs
 are debug previews, Windows installers are unsigned, and Mac previews use ad-hoc
 signing without notarization.
 
+RushLink 0.1.3 downloads target **HeadRush firmware 5.2.0** and carry
+`_headrush-5.2.0` before the file extension. Keep that firmware label separate
+from the app version, architecture and preview/signing labels. Verify the
+checksums for the final filenames; the [release guide](RELEASE.md) describes
+publication and provenance for all platform pipelines.
+
 Additional commands:
 
 ```powershell
@@ -217,6 +223,13 @@ Actions artifacts expire after 14 days and follow the repository's visibility;
 do not upload sensitive data. Downloaded copies are kept under
 `release-artifacts/current-build/<source SHA>/ios-device/` and
 `ios-simulator/`. No App Store upload or public release is performed.
+
+For the 0.1.3 release, device previews use a filename ending in
+`_unsigned_headrush-5.2.0.ipa`; the ARM64 simulator preview ends in
+`_headrush-5.2.0.app.zip`. Preserve these distinctions when selecting or sharing
+a build. Published releases keep their original tags; build snapshots and
+packaging follow-ups record their own source revisions instead of moving a
+released tag.
 
 Use `npm run build:ios -- -NoWait` to queue without waiting. Resume downloading
 with `npm run build:ios -- -DownloadRun <run ID>`.

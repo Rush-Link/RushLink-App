@@ -1,4 +1,4 @@
-name: Build RushLink iPhone and iPad preview
+name: Build RushLink iPhone and iPad preview for HeadRush 5.2.0
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
           target=aarch64
           if [ "$BUILD_KIND" = simulator ]; then target=aarch64-sim; fi
           npm run tauri -- ios build --ci --no-sign --archive-only --target "$target" -- --locked
-      - name: Verify, package and test iPhone and iPad
+      - name: Verify, package and test iPhone and iPad for HeadRush 5.2.0
         run: node tools/ios-artifacts.mjs ${{ matrix.kind }}
       - name: Upload iOS preview package
         uses: actions/upload-artifact@v4

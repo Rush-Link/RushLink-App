@@ -14,6 +14,43 @@ installer upgrades the existing installation. The Windows collection script
 reads the branded source filenames and retains the established public download
 filenames; macOS verification reads the app name from the Tauri configuration.
 
+## Firmware labels and platform pipelines
+
+The application version and target pedal firmware are separate. For RushLink
+**0.1.3**, use **HeadRush firmware 5.2.0** in the release title and notes, and add
+`_headrush-5.2.0` immediately before each download's extension. Preserve the
+existing app version, platform, architecture and signing/flavor labels. Treat
+`.app.zip` and `.app.tar.gz` as complete extensions when adding the suffix.
+For example:
+
+- `RushLink_0.1.3_windows_x64_setup_headrush-5.2.0.exe`
+- `RushLink_0.1.3_android-arm64-device_debug_headrush-5.2.0.apk`
+- `RushLink_0.1.3_ios-iphone-ipad_unsigned_headrush-5.2.0.ipa`
+- `RushLink_0.1.3_ios-simulator-arm64_headrush-5.2.0.app.zip`
+
+Generate checksum files using the final published filenames. Keep the release's
+standard `SHA256SUMS.txt`, `SOURCE-MANIFEST.json` and `RELEASE-NOTES.md` names;
+installer and source-ZIP filenames carry the firmware label. Renaming a packaged
+installer does not change its internal app version or executable bytes; do not
+edit signed package contents to add a firmware label.
+
+Keep the established platform build paths available:
+
+| Platform | Build path | Output |
+| --- | --- | --- |
+| Windows x64 | `npm run build:windows`, or the Windows job in **Build RushLink desktop release** | EXE and MSI installers |
+| macOS ARM64 and Intel | **Build RushLink macOS preview** in `macos-build.yml`, or the macOS jobs in the desktop release workflow | Separate architecture-specific DMGs |
+| Linux x64 | **Build RushLink Linux preview** in `linux-build.yml`, or the Linux job in the desktop release workflow | AppImage and Debian previews |
+| Android | `npm run build:android` with the validated Windows Android toolchain | ARM64 device and x86-64 emulator debug APKs |
+| iPhone and iPad | **Build RushLink iPhone and iPad preview** in `ios-build.yml`, also available through `npm run build:ios` | Unsigned ARM64 device IPA and ARM64 simulator app ZIP |
+
+The dedicated Actions workflows upload checksummed artifacts; they do not
+publish them as releases. Review and attach their verified outputs to the
+intended release separately. Record the workflow run and source revision used
+for each platform. Android build evidence records its toolchain and artifact
+hashes. Simulator screenshots and diagnostic output are verification evidence,
+not installer downloads.
+
 ## Before a release build
 
 When converting an older private checkout into a public repository, review its
@@ -152,13 +189,44 @@ For public distribution, configure these repository secrets before running the w
 
 Without Apple signing and notarisation, macOS users will receive Gatekeeper warnings. Windows installers are also unsigned until a code-signing certificate is configured.
 
+## iPhone and iPad preview builds
+
+The dedicated `ios-build.yml` workflow builds on GitHub-hosted Apple Silicon
+macOS runners, with separate device and simulator jobs. Run it through Actions
+or use `npm run build:ios` from Windows as described in [WORKFLOW.md](WORKFLOW.md).
+It checks the package's app version, ARM64 architecture, iPhone/iPad device
+families, orientation settings and local-network permission description. The
+simulator job also installs and launches the app on iPhone and iPad simulators
+and saves startup evidence separately from the downloads.
+
+The device output is an **unsigned ARM64 IPA**, not an App Store or TestFlight
+release. A developer must sign and provision it before installation on physical
+hardware. The **ARM64 simulator app ZIP** requires an Apple Silicon Mac and an
+iOS Simulator runtime; it does not run on physical iPhones/iPads or in a Windows
+Android emulator. No Apple signing secrets are needed for these preview builds.
+Successful simulator checks do not establish real Wi-Fi discovery, device
+writes, audio or MIDI behavior on physical iOS hardware.
+
 ## Draft releases and website
 
 1. Review the source revision and matching versions, then trigger **Build RushLink desktop release** or push a `rushlink-v<version>` tag. This needs repository write access and creates a draft prerelease.
-2. Download and inspect the Windows x64 installers, macOS Apple Silicon/Intel DMGs and Linux x64 Debian/AppImage preview packages. Test installation and startup on each available platform; report any platform or hardware checks that were not performed.
-3. Edit the generated release notes, keep the early-alpha warning, then publish the draft.
+2. Download and inspect the Windows x64 installers, macOS Apple Silicon/Intel DMGs and Linux x64 Debian/AppImage preview packages. Build Android ARM64 device/x86-64 emulator APKs and iPhone/iPad unsigned IPA/ARM64 simulator ZIP through their separate platform paths when including mobile previews. Verify architecture, app version, payload and checksums. Test installation and startup on each available platform; report any platform or hardware checks that were not performed.
+3. Apply the target-firmware filename suffix, regenerate checksums and review the final download list. Edit the generated release notes to identify the app version, firmware target, per-platform signing/preview limitations and build provenance; keep the early-alpha warning, then publish the draft.
 4. Coordinate the download catalog with the separate website repository, `rush-link/rush-link.github.io`. Its `data-repository` identifies the repository supplying its download releases; creating a source-repository release does not copy assets there automatically.
 5. Make website changes and deploy GitHub Pages from that website repository. Verify the Downloads panel and release count against its configured release source. Website sources, validation and Pages deployment are maintained separately from the application repository.
+
+For a published release, keep the released tag immutable. `rushlink-v0.1.3`
+identifies the application source revision `271a1e5`; do not retag it to claim
+that later packaging changes were in those binaries. Firmware filename labels
+can be added without recompiling unchanged packages. The 0.1.3 platform builds
+use that released application source: Windows retains its desktop-release
+build, macOS/Linux/iOS use their dedicated Actions workflows at the released
+tag, and Android uses the validated local toolchain with app-source equality
+checked against the tag. Record exact revisions and Actions runs, verify app
+versions, and refresh the checksums and website catalog together. A refreshed
+source ZIP can include later packaging scripts and documentation; its manifest
+must identify both the exported snapshot and the released application-source
+commit rather than imply that the original tag moved.
 
 Preview Actions run in public repositories and forks as well as private ones.
 Their logs and artifacts follow the repository's access rules. Treat every build

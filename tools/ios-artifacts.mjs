@@ -35,7 +35,9 @@ assert.equal(run('lipo', ['-archs', join(app, plist.CFBundleExecutable)]).trim()
 assert(plist.CFBundleSupportedPlatforms.includes(kind === 'device' ? 'iPhoneOS' : 'iPhoneSimulator'));
 const stage = resolve(`release-artifacts/ios-${kind}`);
 mkdirSync(stage, { recursive: true });
-const filename = kind === 'device' ? `RushLink_${version}_ios-iphone-ipad_unsigned.ipa` : `RushLink_${version}_ios-simulator-arm64.app.zip`;
+const filename = kind === 'device'
+  ? `RushLink_${version}_ios-iphone-ipad_unsigned_headrush-5.2.0.ipa`
+  : `RushLink_${version}_ios-simulator-arm64_headrush-5.2.0.app.zip`;
 if (kind === 'device') {
   const payload = resolve('release-artifacts/ios-packaging/Payload');
   mkdirSync(payload, { recursive: true });

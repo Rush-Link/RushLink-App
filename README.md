@@ -4,6 +4,8 @@ RushLink is an open-source, unofficial companion for HeadRush Prime-family devic
 
 **RushLink 0.1.3 targets HeadRush firmware 5.2.0.** Read the [release notes](docs/releases/0.1.3.md) for multiple-NAM support, resource limits and compatibility details. `0.1.3` is the app version; `5.2.0` is the pedal firmware version.
 
+Download installers and platform previews from the [0.1.3 GitHub release](https://github.com/Rush-Link/RushLink-App/releases/tag/rushlink-v0.1.3). Filenames include `headrush-5.2.0`. Windows and macOS installers are available alongside Linux, Android and iOS previews; read the [download table and platform limits](docs/releases/0.1.3.md) before choosing a package. The iPhone/iPad IPA requires Apple developer signing before use on a physical device.
+
 The app uses React, TypeScript and Tauri 2. A browser demo lets you work on the interface without a pedal; native builds communicate with the selected HeadRush over the local network.
 
 **Early alpha:** live API behavior has been investigated on Flex Prime firmware 5.1 and 5.2.0. Other models and operating systems need further hardware testing. RushLink is not affiliated with or endorsed by HeadRush or inMusic. Keep a device backup before testing changes that write to a pedal.

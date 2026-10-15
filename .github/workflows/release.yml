@@ -24,7 +24,7 @@ jobs:
           - platform: windows-latest
             target: x86_64-pc-windows-msvc
             args: ""
-          - platform: macos-latest
+          - platform: macos-15
             target: aarch64-apple-darwin
             args: "--target aarch64-apple-darwin"
           - platform: macos-15-intel
@@ -114,11 +114,13 @@ jobs:
 
             Release notes: https://github.com/Rush-Link/RushLink-App/blob/rushlink-v__VERSION__/docs/releases/__VERSION__.md
 
-            Windows: x64 installer. macOS: choose Apple Silicon or Intel. Linux: x64 Debian and AppImage preview packages.
+            Windows: x64 installer. macOS: choose Apple Silicon or Intel. Linux: x64 Debian and AppImage preview packages. Android and iOS previews are built through the separate platform workflows and attached after verification.
+
+            Installer filenames include headrush-5.2.0 to identify the target firmware while retaining the independent RushLink app version.
           releaseDraft: true
           prerelease: true
           generateReleaseNotes: true
           uploadUpdaterJson: false
           retryAttempts: 1
           args: ${{ matrix.args }}
-          releaseAssetNamePattern: "RushLink_[version]_[platform]_[arch][_setup].[ext]"
+          releaseAssetNamePattern: "RushLink_[version]_[platform]_[arch][_setup]_headrush-5.2.0.[ext]"

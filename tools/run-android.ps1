@@ -42,7 +42,7 @@ $runtime = Get-RushLinkAndroidRuntime $repoRoot -Profile $Profile
 $selection = @{ JavaHome=$JavaHome; AndroidHome=$AndroidHome; NdkHome=$NdkHome; Target='emulator'; Tablet=$true }
 $session = Read-RushLinkRuntimeSession $runtime
 $version = (Get-Content -LiteralPath (Join-Path $repoRoot 'package.json') -Raw | ConvertFrom-Json).version
-$apkPath = Join-Path $repoRoot "release-artifacts/current-build/android/RushLink_${version}_android-x86_64-emulator_debug.apk"
+$apkPath = Join-Path $repoRoot "release-artifacts/current-build/android/RushLink_${version}_android-x86_64-emulator_debug_headrush-5.2.0.apk"
 
 if ($Check) {
   $toolchain = Get-RushLinkAndroidToolchain @selection

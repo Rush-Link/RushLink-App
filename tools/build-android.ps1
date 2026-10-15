@@ -179,7 +179,7 @@ try {
       'verify', '--verbose', '--print-certs', $source
     )
     Invoke-BuildCommand (Join-Path $AndroidHome 'build-tools/36.0.0/aapt.exe') @('dump', 'badging', $source)
-    $name = "RushLink_${version}_android-$($architecture.label)_debug.apk"
+    $name = "RushLink_${version}_android-$($architecture.label)_debug_headrush-5.2.0.apk"
     $destination = Join-Path $outputRoot $name
     Copy-Item -LiteralPath $source -Destination $destination -Force
     $artifacts += [pscustomobject]@{

@@ -102,6 +102,11 @@ Assert ($records.Count -eq 1 -and $records[0].sha256 -eq $hash) 'Valid artifact 
 $beforeDownloads = $downloads
 $resumed = @(Receive-CompletedArtifacts $run $jobs '0.1.1' $directory)
 Assert ($resumed.Count -eq 1 -and $downloads -eq $beforeDownloads) 'Resume redownloaded or lost the saved record.'
+foreach ($compatibleName in @('RushLink_0.1.1_aarch64_headrush-5.2.0.dmg', 'RushLink by Cygma Audio_0.1.1_aarch64.dmg')) {
+  New-FixtureArchive @(@{Name=$compatibleName;Text=$payload},@{Name=$sumName;Text="$hash  $compatibleName`n"})
+  $compatibleRecords = @(Receive-CompletedArtifacts $run $jobs '0.1.1' (New-TestDirectory))
+  Assert ($compatibleRecords.Count -eq 1 -and $compatibleRecords[0].name -ceq $compatibleName -and $compatibleRecords[0].sha256 -eq $hash) 'Firmware-labeled or branded Mac artifact did not verify.'
+}
 [IO.File]::WriteAllText($records[0].path, 'tampered', $utf8)
 Assert-Throws { Receive-CompletedArtifacts $run $jobs '0.1.1' $directory } 'Tampered saved installer was accepted.'
 foreach ($entries in @(
@@ -127,6 +132,10 @@ foreach ($kind in @('device','simulator')) {
   New-FixtureArchive @(@{Name=$name;Text=$payload},@{Name=$sum;Text="$hash  $name`n"})
   $records = @(Receive-CompletedArtifacts $run $iosJobs '0.1.1' (New-TestDirectory))
   Assert ($records.Count -eq 1 -and $records[0].name -eq $name -and $records[0].sha256 -eq $hash) "iOS $kind package failed verification."
+  $firmwareName = $name -creplace '(\.app\.zip|\.ipa)$', '_headrush-5.2.0$1'
+  New-FixtureArchive @(@{Name=$firmwareName;Text=$payload},@{Name=$sum;Text="$hash  $firmwareName`n"})
+  $firmwareRecords = @(Receive-CompletedArtifacts $run $iosJobs '0.1.1' (New-TestDirectory))
+  Assert ($firmwareRecords.Count -eq 1 -and $firmwareRecords[0].name -ceq $firmwareName -and $firmwareRecords[0].sha256 -eq $hash) "Firmware-labeled iOS $kind package failed verification."
   New-FixtureArchive @(@{Name=$name;Text='tampered'},@{Name=$sum;Text="$hash  $name`n"})
   Assert-Throws { Receive-CompletedArtifacts $run $iosJobs '0.1.1' (New-TestDirectory) } "Tampered iOS $kind package was accepted."
 }

@@ -28,8 +28,8 @@ try {
   [IO.File]::WriteAllText($reuseConfig, '{"build":{"beforeBuildCommand":""}}', [Text.UTF8Encoding]::new($false))
   Invoke-WindowsCommand 'npm.cmd' @('run', 'tauri', '--', 'build', '--ci', '--bundles', 'msi,nsis', '--config', $reuseConfig, '--', '--locked')
   $artifacts = foreach ($item in @(
-    @{ folder = 'nsis'; name = "RushLink_${version}_x64-setup.exe"; sourceName = "${productName}_${version}_x64-setup.exe" },
-    @{ folder = 'msi'; name = "RushLink_${version}_x64_en-US.msi"; sourceName = "${productName}_${version}_x64_en-US.msi" }
+    @{ folder = 'nsis'; name = "RushLink_${version}_x64-setup_headrush-5.2.0.exe"; sourceName = "${productName}_${version}_x64-setup.exe" },
+    @{ folder = 'msi'; name = "RushLink_${version}_x64_en-US_headrush-5.2.0.msi"; sourceName = "${productName}_${version}_x64_en-US.msi" }
   )) {
     $source = Join-Path $repoRoot "src-tauri/target/release/bundle/$($item.folder)/$($item.sourceName)"
     if (-not (Test-Path -LiteralPath $source)) { throw "Expected Windows installer was not built: $source" }

@@ -94,7 +94,10 @@ jobs:
           set -euo pipefail
           stage="release-artifacts/macos-$RELEASE_ARCH"
           mkdir -p "$stage"
-          cp src-tauri/target/"$RELEASE_TARGET"/release/bundle/dmg/*.dmg "$stage/"
+          version="$(node -p "require('./package.json').version")"
+          package_arch=x64
+          if [ "$RELEASE_ARCH" = arm64 ]; then package_arch=aarch64; fi
+          cp src-tauri/target/"$RELEASE_TARGET"/release/bundle/dmg/*.dmg "$stage/RushLink_${version}_${package_arch}_headrush-5.2.0.dmg"
           cd "$stage"
           shasum -a 256 -- *.dmg > "SHA256SUMS-macos-$RELEASE_ARCH.txt"
           shasum -a 256 --check "SHA256SUMS-macos-$RELEASE_ARCH.txt"

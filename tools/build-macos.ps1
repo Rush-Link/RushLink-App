@@ -230,14 +230,21 @@ function Receive-CompletedArtifacts {
     if ($successfulJob.Count -ne 1 -or @($verified | Where-Object arch -eq $arch).Count) { continue }
     $artifact = @($artifacts.artifacts | Where-Object { $_.name -eq "RushLink-$buildPlatform-$arch-$($Run.run_number)" -and -not $_.expired })
     if ($artifact.Count -ne 1) { throw "Expected exactly one unexpired $arch artifact for run $($Run.id)." }
-    $dmgName = if ($buildPlatform -eq 'ios') { if ($arch -eq 'device') { "RushLink_${Version}_ios-iphone-ipad_unsigned.ipa" } else { "RushLink_${Version}_ios-simulator-arm64.app.zip" } } elseif ($arch -eq 'arm64') { "RushLink_${Version}_aarch64.dmg" } else { "RushLink_${Version}_x64.dmg" }
+    $legacyName = if ($buildPlatform -eq 'ios') { if ($arch -eq 'device') { "RushLink_${Version}_ios-iphone-ipad_unsigned.ipa" } else { "RushLink_${Version}_ios-simulator-arm64.app.zip" } } elseif ($arch -eq 'arm64') { "RushLink_${Version}_aarch64.dmg" } else { "RushLink_${Version}_x64.dmg" }
+    $firmwareName = $legacyName -creplace '(\.app\.zip|\.ipa|\.dmg)$', '_headrush-5.2.0$1'
+    $allowedNames = @($legacyName, $firmwareName)
+    if ($buildPlatform -eq 'macos') {
+      $allowedNames += $legacyName -creplace '^RushLink_', 'RushLink by Cygma Audio_'
+    }
     $checksumName = "SHA256SUMS-$buildPlatform-$arch.txt"
     $archivePath = Join-Path $RunDirectory ("artifact-$($artifact[0].id)-" + [Guid]::NewGuid().ToString('N') + '.zip')
     Save-GitHubDownload "/actions/artifacts/$($artifact[0].id)/zip" $archivePath
     $archive = [IO.Compression.ZipFile]::OpenRead($archivePath)
     try {
       $entries = @($archive.Entries)
-      if ($entries.Count -ne 2 -or @($entries | Where-Object FullName -CEQ $dmgName).Count -ne 1 -or @($entries | Where-Object FullName -CEQ $checksumName).Count -ne 1) { throw 'Artifact ZIP must contain only the expected app package and checksum file.' }
+      $packageEntries = @($entries | Where-Object { $allowedNames -ccontains $_.FullName })
+      if ($entries.Count -ne 2 -or $packageEntries.Count -ne 1 -or @($entries | Where-Object FullName -CEQ $checksumName).Count -ne 1) { throw 'Artifact ZIP must contain only the expected app package and checksum file.' }
+      $dmgName = $packageEntries[0].FullName
       $reader = [IO.StreamReader]::new($archive.GetEntry($checksumName).Open())
       try { $checksum = $reader.ReadToEnd().Trim() } finally { $reader.Dispose() }
       if ($checksum -cnotmatch '^(?<hash>[a-fA-F0-9]{64}) [ *](?<name>[^/\\\r\n]+)$' -or $Matches.name -cne $dmgName) { throw 'Invalid installer checksum record.' }
