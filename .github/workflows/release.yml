@@ -75,16 +75,33 @@ jobs:
         run: cargo test --locked --manifest-path src-tauri/Cargo.toml --target ${{ matrix.target }}
       - name: Verify clean release payload
         run: npm run release:check
+      - name: Configure optional Apple signing
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          RUSHLINK_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          RUSHLINK_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          RUSHLINK_APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          RUSHLINK_APPLE_ID: ${{ secrets.APPLE_ID }}
+          RUSHLINK_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          RUSHLINK_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            source_key="RUSHLINK_${key}"
+            value="${!source_key-}"
+            if [[ -n "$value" ]]; then
+              delimiter="RUSHLINK_$(uuidgen)"
+              printf '%s<<%s\n%s\n%s\n' "$key" "$delimiter" "$value" "$delimiter" >> "$GITHUB_ENV"
+            fi
+          done
+          if [[ -z "${RUSHLINK_APPLE_SIGNING_IDENTITY:-}" ]]; then
+            printf '%s\n' 'APPLE_SIGNING_IDENTITY=-' >> "$GITHUB_ENV"
+          fi
       - name: Build installers and create draft alpha release
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || '-' }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           tagName: rushlink-v__VERSION__
           releaseName: RushLink by Cygma Audio v__VERSION__ — for HeadRush firmware 5.2.0 (early alpha)
