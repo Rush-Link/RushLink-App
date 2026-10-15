@@ -1,5 +1,5 @@
 // Read the debug WebView over the runner's isolated ADB forward. No page actions.
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const [directory, timeoutArgument = '120', portArgument = '9348', profile] = process.argv.slice(2);
@@ -10,6 +10,7 @@ if (!directory || !Number.isFinite(Number(timeoutArgument)) || Number(timeoutArg
 if (typeof WebSocket !== 'function') throw new Error('The Android launcher requires Node.js 22 or newer.');
 if (profile && !['phone', 'tablet'].includes(profile)) throw new Error('Invalid emulator profile.');
 const output = resolve(directory);
+const { productName } = JSON.parse(await readFile(new URL('../../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
 const deadline = Date.now() + Number(timeoutArgument) * 1000;
 const pause = (milliseconds) => new Promise((resolvePause) => setTimeout(resolvePause, milliseconds));
 const save = (name, value) => writeFile(join(output, name), JSON.stringify(value, null, 2));
@@ -84,7 +85,7 @@ try {
     });
     lastState = response.result?.value;
     const ready = lastState?.readyState === 'complete' && lastState.tauriAvailable &&
-      lastState.title === 'RushLink' && lastState.rootChildren > 0 && lastState.workspaceVisible &&
+      lastState.title === productName && lastState.rootChildren > 0 && lastState.workspaceVisible &&
       lastState.bodyText.length > 100;
     stable = ready ? stable + 1 : 0;
     if (events.some((event) => event.method === 'Runtime.exceptionThrown')) {
